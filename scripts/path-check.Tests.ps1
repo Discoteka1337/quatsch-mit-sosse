@@ -4,6 +4,15 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+& "$PSHOME\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PSScriptRoot\import-msvc.Tests.ps1"
+if ($LASTEXITCODE -ne 0) {
+    throw 'Regression: Die gemeinsame MSVC-Initialisierung ist fehlgeschlagen.'
+}
+& "$PSHOME\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PSScriptRoot\dev.Tests.ps1"
+if ($LASTEXITCODE -ne 0) {
+    throw 'Regression: Der Entwicklungsstart ist fehlgeschlagen.'
+}
+
 $projectRoot = (Resolve-Path -LiteralPath "$PSScriptRoot\..").ProviderPath
 $checkScript = Join-Path -Path "$PSScriptRoot" -ChildPath 'path-check.ps1'
 $testDirectory = Join-Path -Path "$projectRoot" -ChildPath 'Test Ordner ß'

@@ -55,15 +55,8 @@ fn main() {
 
     $previousBuildEnvironment = [Environment]::GetEnvironmentVariables('Process')
     try {
-        $vswherePath = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-        $installationPath = & "$vswherePath" -latest -products 'Microsoft.VisualStudio.Product.BuildTools' -version '[17.0,18.0)' -requires 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64' -property installationPath
-        if ($LASTEXITCODE -ne 0 -or -not $installationPath) {
-            throw 'Visual Studio 2022 Build Tools mit Desktop-C++ wurden nicht gefunden.'
-        }
-        $developerScript = Join-Path -Path "$installationPath" -ChildPath 'Common7\Tools\Launch-VsDevShell.ps1'
-        $env:VSCMD_SKIP_SENDTELEMETRY = '1'
-        & "$developerScript" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
-        Write-Host "MSVC-Umgebung: $installationPath (x64)"
+        . "$PSScriptRoot\import-msvc.ps1"
+        Import-MsvcEnvironment
 
         $cargoExecutable = (Get-Command -Name 'cargo' -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
         & "$cargoExecutable" build --offline --manifest-path "$manifestPath"

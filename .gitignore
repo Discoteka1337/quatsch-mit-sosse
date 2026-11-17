@@ -20,6 +20,7 @@ coverage/
 *.gguf
 *.bin
 models/
+!/crates/models/
 
 # Credentials and local environment
 .env

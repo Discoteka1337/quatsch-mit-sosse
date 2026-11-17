@@ -23,6 +23,7 @@ try {
     New-Item -Path "$fixtureRoot\scripts" -ItemType Directory | Out-Null
     Copy-Item -LiteralPath "$checkScript" -Destination "$fixtureRoot\scripts\check.ps1"
     Copy-Item -LiteralPath "$PSScriptRoot\check.Tests.ps1" -Destination "$fixtureRoot\scripts\check.Tests.ps1"
+    [System.IO.File]::WriteAllText("$fixtureRoot\scripts\import-msvc.ps1", 'throw "PlanOnly darf keine MSVC-Umgebung initialisieren."')
     git init --quiet --initial-branch=main "$fixtureRoot"
     if ($LASTEXITCODE -ne 0) { throw 'Test-Repository konnte nicht angelegt werden.' }
 
@@ -85,7 +86,27 @@ try {
     $plan = & "$fixtureRoot\scripts\check.ps1" -Stage V5 -PlanOnly
     Assert-Condition (-not $plan.Allowed) 'Auch ein bereits committetes Löschen darf die Vorbereitung nicht wieder freigeben.'
 
-    Write-Host 'Prüfregeln bestanden: V5, Schritt 0.1, Vollprüfung sowie Schutz gegen fehlende, begonnene und gelöschte Voraussetzungen.'
+    # Keep ignore-rule checks after the index fixtures so their staging remains independent.
+    Copy-Item -LiteralPath "$projectRoot\.gitignore" -Destination "$fixtureRoot\.gitignore"
+    foreach ($sourcePath in @('crates/models/Cargo.toml', 'crates/models/src/lib.rs')) {
+        git -C "$fixtureRoot" check-ignore --no-index --quiet -- "$sourcePath"
+        Assert-Condition ($LASTEXITCODE -eq 1) "Crate-Quellen dürfen nicht ignoriert werden: $sourcePath"
+    }
+    foreach ($privatePath in @(
+        'models/parakeet/model.onnx',
+        'models/parakeet/config.json',
+        'crates/models/model.onnx',
+        'crates/models/model.gguf',
+        'crates/models/model.bin',
+        'testdata/private/aufnahme.txt',
+        '.env',
+        'secret.key'
+    )) {
+        git -C "$fixtureRoot" check-ignore --no-index --quiet -- "$privatePath"
+        Assert-Condition ($LASTEXITCODE -eq 0) "Private Dateien und Modelle müssen ignoriert bleiben: $privatePath"
+    }
+
+    Write-Host 'Prüfregeln bestanden: V5, Schritt 0.1, Vollprüfung, Ignore-Regeln sowie Schutz gegen fehlende, begonnene und gelöschte Voraussetzungen.'
 } finally {
     if ($createdFixture) {
         $resolvedFixture = (Resolve-Path -LiteralPath "$fixtureRoot").ProviderPath

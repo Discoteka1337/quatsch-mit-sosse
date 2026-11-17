@@ -1,0 +1,22 @@
+[workspace]
+resolver = "3"
+members = [
+    "app/src-tauri",
+    "crates/audio",
+    "crates/vad",
+    "crates/stt",
+    "crates/models",
+    "crates/textfx",
+    "crates/hotkey",
+    "crates/inject",
+    "crates/context",
+    "crates/store",
+    "crates/llm",
+    "crates/notes",
+    "crates/mcp",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"

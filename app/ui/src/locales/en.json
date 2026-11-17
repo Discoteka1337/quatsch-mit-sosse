@@ -1,0 +1,9 @@
+{
+  "appName": "Quatsch mit Soße",
+  "settings": "Settings",
+  "quit": "Quit",
+  "settingsPlaceholder": "The app scaffold is ready. Settings will follow in a later step.",
+  "overlayPlaceholder": "Overlay placeholder",
+  "settingsOpenError": "The settings window could not be opened.",
+  "startupError": "Quatsch mit Soße could not be started."
+}

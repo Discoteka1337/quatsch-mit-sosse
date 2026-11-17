@@ -1,0 +1,9 @@
+{
+  "appName": "Quatsch mit Soße",
+  "settings": "Einstellungen",
+  "quit": "Beenden",
+  "settingsPlaceholder": "Das App-Gerüst steht. Einstellungen folgen in einem späteren Schritt.",
+  "overlayPlaceholder": "Overlay-Platzhalter",
+  "settingsOpenError": "Das Einstellungsfenster konnte nicht geöffnet werden.",
+  "startupError": "Quatsch mit Soße konnte nicht gestartet werden."
+}

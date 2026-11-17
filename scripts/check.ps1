@@ -81,7 +81,8 @@ if (-not $plan.Allowed) {
 }
 
 $exitCode = 0
-$previousTarget = $env:CARGO_TARGET_DIR
+$previousEnvironment = [Environment]::GetEnvironmentVariables('Process')
+$msvcInitialized = $false
 Push-Location -LiteralPath "$projectRoot"
 try {
     $env:CARGO_TARGET_DIR = 'C:\qms-target'
@@ -96,6 +97,11 @@ try {
             continue
         }
         try {
+            if ($check.Id -in @('fmt', 'clippy', 'cargo-test') -and -not $msvcInitialized) {
+                . "$PSScriptRoot\import-msvc.ps1"
+                Import-MsvcEnvironment
+                $msvcInitialized = $true
+            }
             switch ($check.Id) {
                 'rules' { & "$PSHOME\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$projectRoot\scripts\check.Tests.ps1" }
                 'path' { & "$PSHOME\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$projectRoot\scripts\path-check.Tests.ps1" }
@@ -123,7 +129,14 @@ try {
         }
     }
 } finally {
-    $env:CARGO_TARGET_DIR = $previousTarget
+    foreach ($name in @([Environment]::GetEnvironmentVariables('Process').Keys)) {
+        if (-not $previousEnvironment.Contains($name)) {
+            [Environment]::SetEnvironmentVariable($name, $null, 'Process')
+        }
+    }
+    foreach ($name in $previousEnvironment.Keys) {
+        [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], 'Process')
+    }
     Pop-Location
 }
 if ($exitCode -eq 0) { Write-Host "Alle für $Stage vorgesehenen Prüfungen bestanden." }
