@@ -6,17 +6,17 @@
     $env:VSCMD_SKIP_SENDTELEMETRY = '1'
     $vswherePath = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
     if (-not (Test-Path -LiteralPath "$vswherePath" -PathType Leaf)) {
-        throw 'vswhere fehlt. Visual Studio 2022 Build Tools mit Desktop-C++ werden benötigt.'
+        throw 'vswhere fehlt. Visual Studio 2022 oder 2026 mit Desktop-C++ wird benötigt.'
     }
-    $installationPath = & "$vswherePath" -latest -products 'Microsoft.VisualStudio.Product.BuildTools' -version '[17.0,18.0)' -requires 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64' -property installationPath
+    $installationPath = & "$vswherePath" -latest -products '*' -version '[17.0,19.0)' -requires 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64' -property installationPath
     if ($LASTEXITCODE -ne 0 -or -not $installationPath) {
-        throw 'Visual Studio 2022 Build Tools mit Desktop-C++ wurden nicht gefunden.'
+        throw 'Visual Studio 2022 oder 2026 mit Desktop-C++ wurde nicht gefunden.'
     }
 
     # Avoid adding duplicate search paths when an already prepared shell invokes another script.
     if ($env:VSINSTALLDIR -and $env:VCToolsInstallDir -and
         $env:VSINSTALLDIR.TrimEnd('\') -ieq $installationPath.TrimEnd('\') -and
-        $env:VisualStudioVersion -eq '17.0' -and
+        $env:VisualStudioVersion -in @('17.0', '18.0') -and
         $env:VSCMD_ARG_TGT_ARCH -eq 'x64' -and $env:VSCMD_ARG_HOST_ARCH -eq 'x64') {
         $runtimeDirectory = Join-Path -Path "$env:VCToolsInstallDir" -ChildPath 'lib\x64'
         $expectedLinker = Join-Path -Path "$env:VCToolsInstallDir" -ChildPath 'bin\Hostx64\x64\link.exe'
@@ -30,7 +30,7 @@
 
     $developerScript = Join-Path -Path "$installationPath" -ChildPath 'Common7\Tools\Launch-VsDevShell.ps1'
     if (-not (Test-Path -LiteralPath "$developerScript" -PathType Leaf)) {
-        throw 'Die PowerShell-Entwicklungsumgebung der Visual Studio 2022 Build Tools fehlt.'
+        throw 'Die PowerShell-Entwicklungsumgebung von Visual Studio fehlt.'
     }
     & "$developerScript" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation | Out-Null
     # The developer shell consumes this flag; keep it set for nested tool invocations.

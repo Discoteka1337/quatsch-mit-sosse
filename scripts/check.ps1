@@ -53,6 +53,8 @@ $definitions = @(
     @{ Id = 'cargo-test'; Name = 'cargo test --workspace'; Since = 1; Required = 'Cargo.toml' }
     @{ Id = 'ui-check'; Name = 'npm run check'; Since = 1; Required = 'app/ui/package.json' }
     @{ Id = 'ui-test'; Name = 'npm test'; Since = 1; Required = 'app/ui/package.json' }
+    @{ Id = 'ci-rules'; Name = 'CI-Regressionstest'; Since = 2; Required = @('scripts/ci.Tests.ps1', '.github/workflows/ci.yml') }
+    @{ Id = 'privacy-rules'; Name = 'Datenschutz-Regressionstest'; Since = 2; Required = 'scripts/privacy-guard.Tests.ps1' }
     @{ Id = 'privacy'; Name = 'Datenschutz-Wächter'; Since = 2; Required = 'scripts/privacy-guard.ps1' }
 )
 $checks = foreach ($definition in $definitions) {
@@ -61,9 +63,12 @@ $checks = foreach ($definition in $definitions) {
     if ($rank -lt $definition.Since) {
         $state = 'NotScheduled'
         $reason = if ($definition.Since -eq 1) { 'erst ab Schritt 0.1 vorgesehen' } else { 'erst ab Schritt 0.2 vorgesehen' }
-    } elseif ($definition.Required -and -not (Test-Path -LiteralPath "$projectRoot/$($definition.Required)" -PathType Leaf)) {
-        $state = 'Missing'
-        $reason = "Voraussetzung fehlt: $($definition.Required)"
+    } else {
+        $missing = @($definition.Required | Where-Object { $_ -and -not (Test-Path -LiteralPath "$projectRoot/$_" -PathType Leaf) })
+        if ($missing.Count -gt 0) {
+            $state = 'Missing'
+            $reason = "Voraussetzung fehlt: $($missing -join ', ')"
+        }
     }
     [pscustomobject]@{ Id = $definition.Id; Name = $definition.Name; State = $state; Reason = $reason }
 }
@@ -105,6 +110,8 @@ try {
             switch ($check.Id) {
                 'rules' { & "$PSHOME\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$projectRoot\scripts\check.Tests.ps1" }
                 'path' { & "$PSHOME\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$projectRoot\scripts\path-check.Tests.ps1" }
+                'ci-rules' { & "$PSHOME\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$projectRoot\scripts\ci.Tests.ps1" }
+                'privacy-rules' { & "$PSHOME\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$projectRoot\scripts\privacy-guard.Tests.ps1" }
                 'git' {
                     git diff --check
                     if ($LASTEXITCODE -ne 0) { throw 'Arbeitskopie enthält Whitespace-Fehler.' }

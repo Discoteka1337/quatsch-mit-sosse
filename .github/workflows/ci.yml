@@ -1,0 +1,60 @@
+name: Windows-Prüfungen
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Rust, UI und Datenschutz
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: powershell
+    env:
+      CARGO_TARGET_DIR: 'C:\qms-target'
+      CARGO_TERM_COLOR: always
+      VSCMD_SKIP_SENDTELEMETRY: '1'
+      NPM_CONFIG_AUDIT: 'false'
+      NPM_CONFIG_FUND: 'false'
+
+    steps:
+      - name: Quellcode auschecken
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Rust mit Formatierer und Clippy einrichten
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup default stable
+
+      - name: Cargo-Abhängigkeiten und Build-Artefakte zwischenspeichern
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: 'false'
+          cache-directories: 'C:\qms-target'
+
+      - name: Node.js und npm-Cache einrichten
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: 'app/ui/package-lock.json'
+
+      - name: UI-Abhängigkeiten reproduzierbar installieren
+        working-directory: 'app/ui'
+        run: npm ci
+
+      - name: Cargo fmt, Clippy, Workspace-Tests, UI-Check, UI-Tests und Datenschutz prüfen
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/check.ps1"

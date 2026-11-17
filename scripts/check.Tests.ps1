@@ -33,7 +33,7 @@ try {
 
     $plan = & "$fixtureRoot\scripts\check.ps1" -Stage V5 -PlanOnly
     Assert-Condition $plan.CanPass 'V5 wird durch erst später vorgesehene Dateien blockiert.'
-    Assert-Condition (@($plan.Checks | Where-Object { $_.State -eq 'NotScheduled' }).Count -eq 6) 'Spätere Prüfungen müssen ausdrücklich als noch nicht vorgesehen erscheinen.'
+    Assert-Condition (@($plan.Checks | Where-Object { $_.State -eq 'NotScheduled' }).Count -eq 8) 'Spätere Prüfungen müssen ausdrücklich als noch nicht vorgesehen erscheinen.'
 
     foreach ($unsafePath in @('example.onnx', 'modell-ß.onnx', 'testdata/private/aufnahme-ß.txt')) {
         $unsafeFile = Join-Path -Path "$fixtureRoot" -ChildPath "$unsafePath"
@@ -67,6 +67,14 @@ try {
     [System.IO.File]::WriteAllText("$fixtureRoot\scripts\privacy-guard.ps1", 'exit 0')
     $plan = & "$fixtureRoot\scripts\check.ps1" -Stage '0.1' -PlanOnly
     Assert-Condition (-not $plan.Allowed) 'Ein vorhandener Datenschutz-Wächter darf nicht über Schritt 0.1 übersprungen werden.'
+    $plan = & "$fixtureRoot\scripts\check.ps1" -PlanOnly
+    Assert-Condition (-not $plan.CanPass) 'Die Vollprüfung muss auch die Datenschutz- und CI-Regressionstests verlangen.'
+    [System.IO.File]::WriteAllText("$fixtureRoot\scripts\privacy-guard.Tests.ps1", 'exit 0')
+    [System.IO.File]::WriteAllText("$fixtureRoot\scripts\ci.Tests.ps1", 'exit 0')
+    $plan = & "$fixtureRoot\scripts\check.ps1" -PlanOnly
+    Assert-Condition (-not $plan.CanPass) 'Die Vollprüfung muss den CI-Workflow verlangen.'
+    New-Item -Path "$fixtureRoot\.github\workflows" -ItemType Directory -Force | Out-Null
+    [System.IO.File]::WriteAllText("$fixtureRoot\.github\workflows\ci.yml", 'name: Test')
     $plan = & "$fixtureRoot\scripts\check.ps1" -PlanOnly
     Assert-Condition $plan.CanPass 'Die Vollprüfung muss alle vorhandenen Voraussetzungen erkennen.'
     Remove-Item -LiteralPath "$fixtureRoot\scripts\privacy-guard.ps1", "$fixtureRoot\app\ui\package.json"
