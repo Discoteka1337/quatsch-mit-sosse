@@ -11,8 +11,12 @@ UI-Texte, Doku und Commit-Nachrichten auf Deutsch. Code, Bezeichner und Kommenta
 - Nie committen: testdata/private/, Modelldateien, Zugangsdaten.
 ## Arbeitsweise
 - Genau eine Aufgabe pro Lauf, nichts darüber hinaus.
+- Pfade in Skripten und Befehlen immer in Anführungszeichen setzen.
 - Erst Tests schreiben, dann implementieren.
-- Vor Abschluss müssen grün sein: cargo fmt --all --check, cargo clippy --workspace --all-targets -- -D warnings, cargo test --workspace, und in app/ui: npm run check und npm test.
+- Vor Abschluss müssen alle für den aktuellen Bauschritt vorgesehenen Prüfungen grün sein. V4 prüft Dateiinhalte, Ignore-Regeln und Git-Index; V5 zusätzlich die Pfad- und Prüfregel-Regressionstests.
+- Ab Schritt 0.1 sind Pflicht: cargo fmt --all --check, cargo clippy --workspace --all-targets -- -D warnings, cargo test --workspace, und in app/ui: npm run check und npm test. Ab Schritt 0.2 ist zusätzlich scripts/privacy-guard.ps1 Pflicht.
+- Zentraler Prüflauf ab V5: powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/check.ps1". Nur für V5 mit -Stage V5, nur für Schritt 0.1 mit -Stage 0.1; ohne -Stage gilt die Vollprüfung.
+- Spätere Prüfungen als "noch nicht vorgesehen" ausweisen, niemals als bestanden. Sobald ein späterer Bauschritt begonnen oder in Git aufgezeichnet ist, ist der frühere Prüfmodus gesperrt; fehlende Pflichtdateien bleiben Fehler. Begründung: docs/decisions/0001-pruefungen-nach-bauschritt.md.
 - Bei Unklarheiten die Empfehlung aus dem Masterplan nehmen und in docs/decisions/ notieren.
 - Zum Schluss auf Deutsch zusammenfassen: was geändert, wie getestet, was offen ist, was der Mensch prüfen soll.
 ## Technik

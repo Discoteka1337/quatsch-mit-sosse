@@ -193,7 +193,10 @@ UI-Texte, Doku und Commit-Nachrichten auf Deutsch. Code, Bezeichner und Kommenta
 ## Arbeitsweise
 - Genau eine Aufgabe pro Lauf, nichts darüber hinaus.
 - Erst Tests schreiben, dann implementieren.
-- Vor Abschluss müssen grün sein: cargo fmt --all --check, cargo clippy --workspace --all-targets -- -D warnings, cargo test --workspace, und in app/ui: npm run check und npm test.
+- Vor Abschluss müssen alle für den aktuellen Bauschritt vorgesehenen Prüfungen grün sein. V4 prüft Dateiinhalte, Ignore-Regeln und Git-Index; V5 zusätzlich die Pfad- und Prüfregel-Regressionstests.
+- Ab Schritt 0.1 sind Pflicht: cargo fmt --all --check, cargo clippy --workspace --all-targets -- -D warnings, cargo test --workspace, und in app/ui: npm run check und npm test. Ab Schritt 0.2 ist zusätzlich scripts/privacy-guard.ps1 Pflicht.
+- Zentraler Prüflauf ab V5: powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/check.ps1". Nur für V5 mit -Stage V5, nur für Schritt 0.1 mit -Stage 0.1; ohne -Stage gilt die Vollprüfung.
+- Spätere Prüfungen als "noch nicht vorgesehen" ausweisen, niemals als bestanden. Sobald ein späterer Bauschritt begonnen oder in Git aufgezeichnet ist, ist der frühere Prüfmodus gesperrt; fehlende Pflichtdateien bleiben Fehler. Begründung: docs/decisions/0001-pruefungen-nach-bauschritt.md.
 - Bei Unklarheiten die Empfehlung aus dem Masterplan nehmen und in docs/decisions/ notieren.
 - Zum Schluss auf Deutsch zusammenfassen: was geändert, wie getestet, was offen ist, was der Mensch prüfen soll.
 ## Technik
@@ -225,6 +228,7 @@ Lies AGENTS.md. Der Projektordner H:\Quatsch mit Soße enthält Leerzeichen und 
 2. Prüfe und melde, ohne etwas zu ändern: Ist H: ein lokales NTFS-Laufwerk, kein Netzlaufwerk und keine Wechselplatte? Sind 8.3-Kurznamen auf H: aktiv (fsutil 8dot3name query H:; braucht das Administratorrechte, dann nur melden)?
 3. Lege scripts/path-check.ps1 an. Es erzeugt unterhalb des Projekts einen temporären Ordner "Test Ordner ß" mit einem Hello-World-Rust-Projekt und einem leeren npm-Paket, führt cargo build und npm install aus, meldet das Ergebnis und löscht den Ordner wieder. Führe es aus.
 4. Alle Skripte und Befehle in diesem Projekt setzen Pfade in Anführungszeichen. Ergänze das in AGENTS.md unter Arbeitsweise, falls es dort noch fehlt.
+5. Lege scripts/check.ps1 und scripts/check.Tests.ps1 für die Prüfplanung an: Standard ist die Vollprüfung; -Stage V5 verlangt die Vorbereitungsprüfungen, -Stage 0.1 zusätzlich Cargo und UI, die Vollprüfung außerdem den Datenschutz-Wächter aus 0.2. Noch nicht vorgesehene Prüfungen ausdrücklich so melden. Frühere Prüfmodi sperren, sobald spätere Dateien existieren, im Git-Index liegen oder in der Git-Historie vorkommen. Fehlende Pflichtdateien und verbotene Dateien im Index müssen fehlschlagen. Teste diese Grenzen einschließlich gelöschter Manifeste; führe den Prüflauf für V5 aus.
 Ändere sonst nichts. Bei Fehlern im Test: Ursache nennen und einen Vorschlag machen, aber nichts umbauen.
 ```
 
@@ -918,7 +922,7 @@ Tests mit einem MCP-Testclient.
 ### C · Commit (nach jedem erfolgreichen Schritt)
 
 ```
-Lies AGENTS.md. Prüfe mit git status, was sich geändert hat. Führe alle Prüfungen aus AGENTS.md und scripts/privacy-guard.ps1 aus. Wenn alles grün ist: Commit mit einer kurzen deutschen Nachricht im Format "Schritt X.Y: <was>" und push. Wenn ich in dieser Nachricht einen Tag nenne (z. B. v0.1.0), setze ihn und pushe ihn. Wenn etwas rot ist: nicht committen, sondern Fehler nennen.
+Lies AGENTS.md. Prüfe mit git status, was sich geändert hat. Führe alle für den aktuellen Bauschritt vorgeschriebenen Prüfungen aus: nach V4 die Datei-, Ignore- und Git-Index-Prüfungen; nach V5 powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/check.ps1" -Stage V5; nach Schritt 0.1 denselben Prüflauf mit -Stage 0.1; ab Schritt 0.2 ohne -Stage (Vollprüfung einschließlich scripts/privacy-guard.ps1). Bestimme den Bauschritt aus der erledigten Aufgabe, nicht allein aus fehlenden Dateien. Noch nicht vorgesehene Prüfungen ausdrücklich so melden. Wenn alle für den Bauschritt vorgesehenen Prüfungen grün sind: Commit mit einer kurzen deutschen Nachricht im Format "Schritt X.Y: <was>" und push. Wenn ich in dieser Nachricht einen Tag nenne (z. B. v0.1.0), setze ihn und pushe ihn. Wenn etwas rot ist: nicht committen, sondern Fehler nennen.
 ```
 
 ### F · Fehler beheben
