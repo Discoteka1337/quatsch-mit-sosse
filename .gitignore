@@ -1,0 +1,29 @@
+# Rust
+target/
+**/*.rs.bk
+
+# Node
+node_modules/
+dist/
+build/
+.vite/
+.svelte-kit/
+coverage/
+*.log
+
+# Tauri
+/app/src-tauri/gen/schemas/
+
+# Private test data and models
+/testdata/private/
+*.onnx
+*.gguf
+*.bin
+models/
+
+# Credentials and local environment
+.env
+.env.*
+!.env.example
+*.key
+*.pem
