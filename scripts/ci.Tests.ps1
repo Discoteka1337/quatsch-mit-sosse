@@ -50,4 +50,45 @@ foreach ($command in @(
     Assert-Match $check ([regex]::Escape($command)) "Die zentrale CI-Prüfung muss $command enthalten."
 }
 
-Write-Host 'CI-Vertrag bestanden: Windows, Auslöser, Cargo-/npm-Caches, npm ci und vollständiger gemeinsamer Prüflauf.'
+# Check every locked package, including platform-specific optional packages that local npm may skip.
+# Node parses the empty root-package key that Windows PowerShell 5.1 cannot deserialize.
+$lockfileCheck = @'
+const { readFileSync } = require('node:fs');
+const { posix: path } = require('node:path');
+const { packages } = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+const missing = [];
+
+function resolves(owner, name) {
+  let base = owner;
+  while (true) {
+    if (path.basename(base) !== 'node_modules' && packages[path.join(base, 'node_modules', name)]) return true;
+    if (!base) return false;
+    base = path.dirname(base);
+    if (base === '.') base = '';
+  }
+}
+
+for (const [owner, entry] of Object.entries(packages)) {
+  const dependencies = { ...entry.dependencies, ...(owner === '' ? entry.devDependencies : {}) };
+  for (const name of Object.keys(dependencies)) {
+    if (!Object.hasOwn(entry.optionalDependencies || {}, name) && !resolves(owner, name)) {
+      missing.push(`${owner || '<root>'} -> ${name}`);
+    }
+  }
+  for (const name of Object.keys(entry.peerDependencies || {})) {
+    if (!entry.peerDependenciesMeta?.[name]?.optional && !resolves(owner, name)) {
+      missing.push(`${owner || '<root>'} -> peer ${name}`);
+    }
+  }
+}
+if (missing.length) {
+  console.log(missing.join('\n'));
+  process.exitCode = 1;
+}
+'@
+$lockfileCheck | & node - "$projectRoot\app\ui\package-lock.json"
+if ($LASTEXITCODE -ne 0) {
+    throw 'Die npm-Lockdatei enthält fehlende Pflichtabhängigkeiten; auch optionale Plattformpakete müssen vollständig auflösbar sein.'
+}
+
+Write-Host 'CI-Vertrag bestanden: Windows, Auslöser, Cargo-/npm-Caches, vollständige npm-Lockdatei, npm ci und vollständiger gemeinsamer Prüflauf.'
