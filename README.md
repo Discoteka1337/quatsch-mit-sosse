@@ -2,7 +2,7 @@
 
 Deutsche, offline-first Diktier-App für Windows 11. Geplant sind lokale Spracherkennung und Textbereinigung sowie optionale, ausdrücklich aktivierte KI-Anbieter. Die Desktop-App verwendet Tauri 2, Rust und native Windows-Steuerelemente. Das Svelte-/TypeScript-Gerüst bleibt separat erhalten.
 
-**Status: Schritt 1.3 – Spracherkennung und Sprachaktivität.** WASAPI-Aufnahmen mit 16 kHz mono können lokal mit beiden Parakeet-Modellen oder Whisper erkannt werden. Silero erkennt Sprachabschnitte; lange Aufnahmen werden an Pausen in höchstens 20 Sekunden lange Stücke geteilt. Modelle laden erst bei Bedarf und werden nach standardmäßig fünf Minuten Leerlauf automatisch entladen. Aufnahme, Modellverwaltung und Erkennung sind über Kommandozeilenprogramme nutzbar; die Verbindung mit Tray und Hotkey folgt in späteren Schritten.
+**Status: Schritt 1.4 – Korpus-Recorder und Satzliste.** Der Recorder führt durch 40 deutsche Diktate und zehn Aufnahmen ohne Sprache. WASAPI-Aufnahmen mit 16 kHz mono können lokal mit beiden Parakeet-Modellen oder Whisper erkannt werden. Silero erkennt Sprachabschnitte; lange Aufnahmen werden an Pausen in höchstens 20 Sekunden lange Stücke geteilt. Modelle laden erst bei Bedarf und werden nach standardmäßig fünf Minuten Leerlauf automatisch entladen. Aufnahme, Modellverwaltung und Erkennung sind über Kommandozeilenprogramme nutzbar; die Verbindung mit Tray und Hotkey folgt in späteren Schritten.
 
 **WebView2-Diagnostikpfad entfernt.** Einstellungen und Overlay sind native Fenster; die App startet weder WebView2 noch dessen SDK-Versionsabfrage. Dafür wird eine eng begrenzte, geprüfte Tauri-Abhängigkeitskorrektur verwendet. Entscheidung, Tests und Wartung stehen in [Entscheidung 0006](docs/decisions/0006-native-fenster-ohne-webview2.md). Systemweite Windows-Diagnostik wird dadurch nicht verändert.
 
@@ -134,6 +134,53 @@ cargo test --package quatsch-mit-sosse-stt --test installed_models whisper -- --
 ```
 
 Die ASR-Tests verwenden standardmäßig `testdata/private/record_test.wav`; alternativ vorher `$env:QMS_TEST_WAV = "C:\Pfad\aufnahme.wav"` setzen. Fehlende Modelle oder Aufnahmen lassen den ausdrücklich gestarteten Test fehlschlagen. Details zu Aufteilung, Leerlauf, nativer Laufzeit und Telemetrieabschaltung stehen in [Entscheidung 0009](docs/decisions/0009-spracherkennung-und-sprachaktivitaet.md).
+
+## Testaufnahmen erstellen
+
+Der Korpus-Recorder benötigt keine Modelle und kein Netzwerk. In einem interaktiven Windows-Terminal starten:
+
+```powershell
+Set-Location -LiteralPath "H:\Quatsch mit Soße"
+$env:CARGO_TARGET_DIR = "C:\qms-target"
+. "./scripts/import-msvc.ps1"
+Import-MsvcEnvironment
+cargo run --package corpus-recorder
+```
+
+Die lokale UTF-8-Datei `testdata/private/sentences.txt` enthält genau 40 Zeilen ohne Überschriften oder Leerzeilen. Sie wurde für diesen Schritt angelegt und bleibt wie alle Aufnahmen von Git ausgeschlossen. Die Einträge haben je 35 bis 41 Wörter, etwa 17 bis 20 Sekunden bei 126 Wörtern pro Minute; tatsächliche Sprechdauer und ausgesprochen lange Zahlen können abweichen. Nach einem frischen Git-Clone muss diese private Datei aus der eigenen lokalen Sicherung bereitgestellt werden. Während eines begonnenen Durchlaufs die Reihenfolge der Sätze nicht verändern.
+
+| Nummern | Inhalt |
+| --- | --- |
+| 001–015 | KI-Prompts mit englischen Fachwörtern |
+| 016–023 | Alltagsnachrichten |
+| 024–029 | E-Mails im Sie-Ton |
+| 030–034 | Zahlen, Datum, Uhrzeit, Prozent und Euro |
+| 035–040 | Selbstkorrekturen und Füllwörter |
+| 041–045 | Stille, ohne Sprache oder Tippen |
+| 046–050 | Nur Tastaturgeräusche, ohne Sprache |
+
+Das Programm öffnet sichtbar das Mikrofon und wartet auf 500 ms empfangenes Audio. Der Vorlauf bleibt während der Sitzung aktiv. Pro Aufnahme:
+
+1. Den angezeigten Satz lesen; **Enter** startet, anschließend natürlich diktieren.
+2. **Enter** stoppt und zeigt die Dauer einschließlich Vorlauf.
+3. **Enter** bestätigt die Speicherung und geht weiter. **W** verwirft den Versuch und zeigt denselben Satz erneut; **S** verwirft ihn und überspringt seine Nummer. W und S benötigen kein zusätzliches Enter.
+
+Vor dem Start überspringt S ebenfalls. Während einer Sprach- oder Stilleaufnahme können W und S direkt verwerfen; bei einer laufenden Tastaturaufnahme bleiben beide normale Buchstaben, damit freies Tippen möglich ist. Hier beendet Enter die Aufnahme, danach stehen W und S wieder zur Verfügung. Escape oder Strg+C beendet die Sitzung und verwirft einen unbestätigten Versuch. Das Mikrofon wird auch im Fehlerfall freigegeben.
+
+Für Stille und Tastaturgeräusche erscheint jeweils eine eigene Ansage: 10 bis 20 Sekunden ohne Sprache aufnehmen, die Ansage nicht mitsprechen. Diese zehn Aufnahmen haben eine **vollständig leere TXT-Referenz**. Die Sprachaufnahmen sollten 10 bis 40 Sekunden dauern; außerhalb dieses Bereichs erscheint ein Hinweis, die Speicherung bleibt möglich.
+
+Gespeichert wird unter `testdata/private/corpus/NNN.wav` (16 kHz mono, Float32, mit Vorlauf) und `NNN.txt` (UTF-8, exakt der angezeigte Satz). Audio und Referenzen werden nicht protokolliert; die Satzanzeige erfolgt nur in der interaktiven Konsole. Umleitungen und Pipes werden vor Mikrofonöffnung abgewiesen. Die Satzliste bleibt ebenfalls privat.
+
+Bereits vorhandene Paare werden beim erneuten Start ausgelassen und niemals überschrieben; übersprungene Nummern werden wieder angeboten. Ein einzelnes WAV oder TXT ohne Partner führt zu einem Fehler vor Mikrofonöffnung: die betroffene Datei zunächst prüfen und privat sichern. Für die spätere Wiederholung einer bereits bestätigten Aufnahme beide Dateien des betroffenen Paars privat sichern und aus dem Korpusordner entfernen, dann erneut starten. Details stehen in [Entscheidung 0011](docs/decisions/0011-korpus-recorder.md).
+
+Ein anderes Mikrofon wählen oder die Hilfe anzeigen:
+
+```powershell
+cargo run --package corpus-recorder -- --device "Exakter Mikrofonname"
+cargo run --package corpus-recorder -- --help
+```
+
+Manuell prüfen: Alle 50 Aufnahmen einsprechen beziehungsweise aufnehmen, einige WAV-Dateien anhören und besonders auf vollständige Wortanfänge achten. W, S und einen Sitzungsneustart ausprobieren. Wenn die gesprochene Formulierung abweicht, die zugehörige TXT-Datei anpassen. Bei 041–050 müssen die Referenzdateien leer bleiben und die WAV-Dateien dürfen keine Sprache enthalten. Anschließend prüfen, dass Windows das Mikrofon als freigegeben anzeigt. Der Qualitätsbenchmark aus Schritt 1.5 ist noch nicht vorgesehen.
 
 ## Leerlauf und Startzeit messen
 

@@ -706,6 +706,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "corpus-recorder"
+version = "0.1.0"
+dependencies = [
+ "hound",
+ "quatsch-mit-sosse-audio",
+ "tempfile",
+ "windows",
+]
+
+[[package]]
 name = "cpal"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

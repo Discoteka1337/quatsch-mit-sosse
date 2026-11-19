@@ -1,0 +1,13 @@
+[package]
+name = "corpus-recorder"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+hound = "3.5.1"
+quatsch-mit-sosse-audio = { path = "../../crates/audio" }
+tempfile = "3"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_System_Console", "Win32_UI_Input_KeyboardAndMouse"] }
