@@ -1,10 +1,11 @@
 # Quatsch mit Soße – Regeln für Coding-Agenten
 ## Projekt
-Deutsche, offline-first Diktier-App für Windows 11 (Tauri 2, Rust-Workspace, Svelte 5 + TypeScript). Der Plan steht in docs/masterplan.md. Bei Widersprüchen gilt der Masterplan; begründete Abweichungen kommen nach docs/decisions/.
+Deutsche, offline-first Diktier-App für Windows 11 (Tauri 2, Rust-Workspace, native Windows-Oberfläche; Svelte 5 + TypeScript nur als separates Gerüst). Der Plan steht in docs/masterplan.md. Bei Widersprüchen gilt der Masterplan; begründete Abweichungen kommen nach docs/decisions/.
 ## Sprache
 UI-Texte, Doku und Commit-Nachrichten auf Deutsch. Code, Bezeichner und Kommentare auf Englisch.
 ## Datenschutz (nicht verhandelbar)
 - Keine Telemetrie, keine Analytics, keine Absturzberichte nach außen.
+- Keine WebViews oder WebView2-SDK-Initialisierung in der Desktop-App; Begründung und geprüfter Tauri-Patch: docs/decisions/0006-native-fenster-ohne-webview2.md.
 - Keine Screenshots und keine Aufrufe von Bildschirmaufnahme-APIs.
 - Netzwerk nur für Modell-Downloads mit SHA256-Prüfung und für ausdrücklich aktivierte KI-Anbieter.
 - Diktierten Text, Audio und Tokens nie loggen.

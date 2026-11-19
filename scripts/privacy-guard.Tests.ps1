@@ -229,6 +229,25 @@ try {
         'crates/models/Cargo.toml' = "[dependencies.net_client]`npackage = 'reqwest'`nversion = '0.1'"
         'crates/models/src/lib.rs' = "// synthetic`nuse net_client::Client; // $sentinel"
     } -ExpectedRule 'PRIVACY_HTTP' -ExpectedPath 'crates/models/src/lib.rs' -ExpectedLine 2
+    foreach ($declaration in @(
+        "[dependencies]`nnet-client.package = 'reqwest'`nnet-client.version = '0.1'",
+        "dependencies.net-client.package = 'reqwest'`ndependencies.net-client.version = '0.1'",
+        "dependencies.net-client = { package = 'reqwest', version = '0.1' }",
+        "[dependencies.net-client]`n'package' = 'reqwest'`nversion = '0.1'",
+        "[dependencies]`nnet-client = { 'package' = 'reqwest', version = '0.1' }"
+    )) {
+        Invoke-GuardCase -Name 'HTTP-Paketalias mit gepunkteten oder zitierten TOML-Schlüsseln' -Files @{
+            'crates/models/Cargo.toml' = $declaration
+            'crates/models/src/lib.rs' = "// synthetic`nuse net_client::Client; // $sentinel"
+        } -ExpectedRule 'PRIVACY_HTTP' -ExpectedPath 'crates/models/src/lib.rs' -ExpectedLine 2
+    }
+    Invoke-GuardCase -Name 'Gestagter gepunkteter HTTP-Paketalias trotz sauberer Arbeitskopie' -Files @{
+        'crates/models/Cargo.toml' = "[dependencies]`nnet_client.package = 'reqwest'`nnet_client.version = '0.1'"
+        'crates/models/src/lib.rs' = "// synthetic`nuse net_client::Client; // $sentinel"
+    } -Indexed @('crates/models/Cargo.toml', 'crates/models/src/lib.rs') -WorkingChanges @{
+        'crates/models/Cargo.toml' = '[dependencies]'
+        'crates/models/src/lib.rs' = 'pub fn safe() {}'
+    } -ExpectedRule 'PRIVACY_HTTP' -ExpectedPath 'crates/models/src/lib.rs' -ExpectedLine 2
     Invoke-GuardCase -Name 'HTTP-Paketalias im erlaubten Netzwerkmodul' -Files @{
         'crates/models/Cargo.toml' = "[dependencies]`nnet_client = { package = 'reqwest', version = '0.1' }"
         'crates/models/src/net.rs' = 'use net_client::Client;'

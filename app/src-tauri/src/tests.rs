@@ -43,6 +43,22 @@ fn window_defaults_keep_the_app_in_the_tray() {
 }
 
 #[test]
+fn windows_never_start_a_browser_automatically() {
+    for window in config().app.windows {
+        assert!(
+            !window.create,
+            "{} must be created explicitly as a native window",
+            window.label
+        );
+    }
+    let json: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+    assert_eq!(
+        json["bundle"]["windows"]["webviewInstallMode"]["type"],
+        "skip"
+    );
+}
+
+#[test]
 fn native_texts_come_from_the_shared_german_catalog() {
     let text = messages();
     assert_eq!(text.app_name, "Quatsch mit Soße");
@@ -55,6 +71,8 @@ fn native_texts_come_from_the_shared_german_catalog() {
         let locale: Messages = serde_json::from_str(source).unwrap();
         assert!(!locale.settings_open_error.is_empty());
         assert!(!locale.startup_error.is_empty());
+        assert!(!locale.settings_placeholder.is_empty());
+        assert!(!locale.overlay_placeholder.is_empty());
     }
 }
 
@@ -63,10 +81,24 @@ fn missing_settings_are_created_and_reused_without_duplicates() {
     let mut context = mock_context(noop_assets());
     *context.config_mut() = config();
     let app = mock_builder().build(context).unwrap();
-    assert!(app.webview_windows().is_empty());
+    assert!(app.windows().is_empty());
 
-    show_settings(app.handle()).unwrap();
-    assert!(app.get_webview_window("settings").is_some());
-    show_settings(app.handle()).unwrap();
-    assert_eq!(app.webview_windows().len(), 1);
+    let create = || create_native_window(app.handle(), "settings");
+    show_settings_using(app.handle(), create).unwrap();
+    assert!(app.get_window("settings").is_some());
+    show_settings_using(app.handle(), || panic!("Existing settings must be reused")).unwrap();
+    assert_eq!(app.windows().len(), 1);
+    assert!(app.webview_windows().is_empty());
+}
+
+#[test]
+fn both_scaffold_windows_are_native_and_unknown_labels_fail() {
+    let mut context = mock_context(noop_assets());
+    *context.config_mut() = config();
+    let app = mock_builder().build(context).unwrap();
+    create_native_window(app.handle(), "settings").unwrap();
+    create_native_window(app.handle(), "overlay").unwrap();
+    assert_eq!(app.windows().len(), 2);
+    assert!(app.webview_windows().is_empty());
+    assert!(create_native_window(app.handle(), "unknown").is_err());
 }

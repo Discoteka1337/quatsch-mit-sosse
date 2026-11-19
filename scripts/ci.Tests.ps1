@@ -45,7 +45,10 @@ foreach ($command in @(
     'npm run check',
     'npm test',
     'privacy-guard.ps1',
-    'privacy-guard.Tests.ps1'
+    'privacy-guard.Tests.ps1',
+    'measure-idle.Tests.ps1',
+    'native-runtime.Tests.ps1',
+    'native-ui.Tests.ps1'
 )) {
     Assert-Match $check ([regex]::Escape($command)) "Die zentrale CI-Prüfung muss $command enthalten."
 }

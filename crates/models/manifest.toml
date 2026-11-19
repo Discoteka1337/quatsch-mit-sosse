@@ -1,0 +1,106 @@
+# Download bytes were fetched and SHA256-verified on 2026-11-19.
+# See docs/decisions/0008-modellquellen-und-installation.md.
+version = 1
+allowed_hosts = [
+    "github.com",
+    "release-assets.githubusercontent.com",
+    "huggingface.co",
+    "us.aws.cdn.hf.co",
+]
+
+[[models]]
+id = "parakeet-v3-int8"
+display_name = "Parakeet TDT 0.6B v3 (int8)"
+languages = ["bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk"]
+kind = "asr"
+license = "CC-BY-4.0"
+attribution = "NVIDIA: Parakeet TDT 0.6B v3; k2-fsa/sherpa-onnx (Fangjun Kuang): ONNX-Export und int8-Quantisierung. Unverändert aus dem sherpa-onnx-Release übernommen. https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3 · https://creativecommons.org/licenses/by/4.0/"
+
+[[models.artifacts]]
+urls = ["https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"]
+archive = "tar.bz2"
+sha256 = "1495e91b59d7fc53ddca91f3431758ec99f8fa253fdb0e1e851be0f72b14b0f9"
+size = 487211443
+files = [
+    { path = "encoder.int8.onnx", archive_path = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/encoder.int8.onnx", size = 652282294 },
+    { path = "decoder.int8.onnx", archive_path = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/decoder.int8.onnx", size = 11845274 },
+    { path = "joiner.int8.onnx", archive_path = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/joiner.int8.onnx", size = 6355277 },
+    { path = "tokens.txt", archive_path = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/tokens.txt", size = 93939 },
+]
+
+[[models]]
+id = "parakeet-primeline-de-int8"
+display_name = "Parakeet primeLine Deutsch (int8)"
+languages = ["de"]
+kind = "asr"
+license = "CC-BY-4.0"
+attribution = "NVIDIA: Basismodell Parakeet TDT 0.6B v3; primeLine AI Services (primeline): deutscher Fine-Tune; flozen1981: sherpa-onnx-kompatibler ONNX-Export und int8-Quantisierung. Exportdateien unverändert übernommen. https://huggingface.co/flozen1981/parakeet-primeline-onnx · https://huggingface.co/primeline/parakeet-primeline · https://creativecommons.org/licenses/by/4.0/"
+
+[[models.artifacts]]
+urls = ["https://huggingface.co/flozen1981/parakeet-primeline-onnx/resolve/d548e25b9bfe559aa274f361892dc4ed5d64743a/encoder.int8.onnx"]
+archive = "none"
+sha256 = "d4232f86718da0330167fb10789d1a35cffe6a60cd58239957943a8d9bc24c63"
+size = 1548009
+files = [{ path = "encoder.int8.onnx", size = 1548009 }]
+
+[[models.artifacts]]
+urls = ["https://huggingface.co/flozen1981/parakeet-primeline-onnx/resolve/d548e25b9bfe559aa274f361892dc4ed5d64743a/encoder.int8.onnx.data"]
+archive = "none"
+sha256 = "d3b0d27912043d38a3c2ce4f2c03124be30bc1ff57d976302908954b2e8fe7bb"
+size = 650776320
+files = [{ path = "encoder.int8.onnx.data", size = 650776320 }]
+
+[[models.artifacts]]
+urls = ["https://huggingface.co/flozen1981/parakeet-primeline-onnx/resolve/d548e25b9bfe559aa274f361892dc4ed5d64743a/decoder.int8.onnx"]
+archive = "none"
+sha256 = "fb4ddefe200706cabb27ee3fc1c81efa50555a4c8a8e00b663cc795216fb9369"
+size = 11845275
+files = [{ path = "decoder.int8.onnx", size = 11845275 }]
+
+[[models.artifacts]]
+urls = ["https://huggingface.co/flozen1981/parakeet-primeline-onnx/resolve/d548e25b9bfe559aa274f361892dc4ed5d64743a/joiner.int8.onnx"]
+archive = "none"
+sha256 = "8220c0d117d81bdd0d8c770881932ac340f1ce4b36932941d561d11ad1aaffce"
+size = 6355277
+files = [{ path = "joiner.int8.onnx", size = 6355277 }]
+
+[[models.artifacts]]
+urls = ["https://huggingface.co/flozen1981/parakeet-primeline-onnx/resolve/d548e25b9bfe559aa274f361892dc4ed5d64743a/tokens.txt"]
+archive = "none"
+sha256 = "ba8e4007c65f4bb4358ffe2ecc13d9ccc7a10351151065242b5c3a943e685742"
+size = 102132
+files = [{ path = "tokens.txt", size = 102132 }]
+
+[[models]]
+id = "whisper-large-v3-turbo"
+display_name = "Whisper large-v3-turbo (int8)"
+languages = ["en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no", "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk", "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk", "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw", "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc", "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo", "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl", "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su", "yue"]
+kind = "asr"
+license = "MIT"
+attribution = "Copyright (c) 2022 OpenAI. k2-fsa/sherpa-onnx (Fangjun Kuang): ONNX-Export und int8-Quantisierung. Exportdateien unverändert übernommen. https://github.com/openai/whisper · https://github.com/openai/whisper/blob/main/LICENSE"
+
+[[models.artifacts]]
+urls = ["https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-turbo.tar.bz2"]
+archive = "tar.bz2"
+sha256 = "b11acbbcd660b44a8e0df33724feb5aaa709cf65668f2823d59f656312544f22"
+size = 563790207
+files = [
+    { path = "turbo-encoder.int8.onnx", archive_path = "sherpa-onnx-whisper-turbo/turbo-encoder.int8.onnx", size = 674716297 },
+    { path = "turbo-decoder.int8.onnx", archive_path = "sherpa-onnx-whisper-turbo/turbo-decoder.int8.onnx", size = 361080764 },
+    { path = "turbo-tokens.txt", archive_path = "sherpa-onnx-whisper-turbo/turbo-tokens.txt", size = 816730 },
+]
+
+[[models]]
+id = "silero-vad"
+display_name = "Silero Sprachaktivitätserkennung"
+languages = ["mul"]
+kind = "vad"
+license = "MIT"
+attribution = "Copyright (c) 2020-present Silero Team. ONNX-Datei unverändert aus dem offiziellen k2-fsa/sherpa-onnx-Release übernommen. https://github.com/snakers4/silero-vad · https://github.com/snakers4/silero-vad/blob/master/LICENSE"
+
+[[models.artifacts]]
+urls = ["https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"]
+archive = "none"
+sha256 = "9e2449e1087496d8d4caba907f23e0bd3f78d91fa552479bb9c23ac09cbb1fd6"
+size = 643854
+files = [{ path = "silero_vad.onnx", size = 643854 }]

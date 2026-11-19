@@ -1,1 +1,79 @@
 Drittanbieter und Modelle
+
+Die lokale Kopie von tauri-runtime-wry 2.12.4 stammt vom Tauri Programme within
+The Commons Conservancy und steht unter Apache-2.0 oder MIT. Die Originallizenzen,
+Herkunft und drei lokalen Quelländerungen sind unter vendor/tauri-runtime-wry/
+einschließlich LOCAL-NOTICE.md dokumentiert.
+
+Die Mikrofonaufnahme verwendet CPAL 0.18.2 (RustAudio, Apache-2.0),
+dasp_sample 0.11.0 (MIT oder Apache-2.0) und crossbeam-channel 0.5.17
+(Crossbeam Project, MIT oder Apache-2.0). Das Aufnahmebeispiel verwendet
+hound 3.5.1 (Apache-2.0) zum Schreiben lokaler WAV-Dateien.
+
+Modelle (freiwillige Downloads, keine Modellgewichte im Repository)
+
+parakeet-v3-int8 — Parakeet TDT 0.6B v3, int8-ONNX
+Urheber des Basismodells: NVIDIA.
+Quelle: https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
+Lizenz: Creative Commons Attribution 4.0 International (CC-BY-4.0).
+Lizenztext: https://creativecommons.org/licenses/by/4.0/legalcode
+ONNX-Export und int8-Quantisierung: k2-fsa/sherpa-onnx, Fangjun Kuang.
+Download: https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models
+Der Export verändert Format und numerische Genauigkeit des NVIDIA-Modells.
+Quatsch mit Soße übernimmt die veröffentlichten Exportdateien unverändert.
+Es wird keine Unterstützung oder Empfehlung durch die Urheber behauptet.
+
+parakeet-primeline-de-int8 — Parakeet primeLine Deutsch, int8-ONNX
+Urheber des Basismodells: NVIDIA (Parakeet TDT 0.6B v3).
+Deutscher Fine-Tune: primeLine AI Services (primeline).
+Fine-Tune: https://huggingface.co/primeline/parakeet-primeline
+ONNX-Export und int8-Quantisierung für sherpa-onnx: flozen1981.
+Quelle: https://huggingface.co/flozen1981/parakeet-primeline-onnx
+Revision: d548e25b9bfe559aa274f361892dc4ed5d64743a.
+Lizenz: Creative Commons Attribution 4.0 International (CC-BY-4.0).
+Lizenztext: https://creativecommons.org/licenses/by/4.0/legalcode
+Die Ableitung umfasst deutsches Fine-Tuning, ONNX-Export und Quantisierung.
+Quatsch mit Soße übernimmt die veröffentlichten Exportdateien unverändert.
+Es wird keine Unterstützung oder Empfehlung durch die Urheber behauptet.
+
+whisper-large-v3-turbo — Whisper large-v3-turbo, int8-ONNX
+Copyright (c) 2022 OpenAI
+Quelle: https://github.com/openai/whisper
+Lizenz: MIT; vollständige Bedingungen stehen unten.
+Original: https://github.com/openai/whisper/blob/main/LICENSE
+ONNX-Export und int8-Quantisierung: k2-fsa/sherpa-onnx, Fangjun Kuang.
+Download: https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models
+Das offizielle Archiv heißt sherpa-onnx-whisper-turbo.tar.bz2.
+Quatsch mit Soße übernimmt die veröffentlichten Exportdateien unverändert.
+
+silero-vad — Silero Voice Activity Detector, ONNX
+Copyright (c) 2020-present Silero Team
+Quelle: https://github.com/snakers4/silero-vad
+Lizenz: MIT; vollständige Bedingungen stehen unten.
+Original: https://github.com/snakers4/silero-vad/blob/master/LICENSE
+Download: https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models
+Quatsch mit Soße übernimmt silero_vad.onnx aus diesem Release unverändert.
+
+Die folgenden MIT-Bedingungen gelten jeweils mit dem oben genannten
+Copyright-Vermerk für OpenAI Whisper und Silero VAD. Die englischen
+Originalbedingungen bleiben unverändert.
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

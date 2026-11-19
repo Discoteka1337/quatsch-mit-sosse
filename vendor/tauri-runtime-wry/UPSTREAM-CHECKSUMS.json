@@ -1,0 +1,29 @@
+{
+    "Package":  "tauri-runtime-wry",
+    "Version":  "2.12.4",
+    "ArchiveSha256":  "0d9be5e7af9560a4a60cdd441389a066cdd3e7c5d464a006ae34cb276cc78abd",
+    "TextHashFormat":  "UTF-8 without BOM, CRLF normalized to LF",
+    "Files":  {
+                  "build.rs":  "68b2727346e58a9963803a75ac29695b500aaa7d0673e18551465502b60cbf11",
+                  "Cargo.toml":  "a73e9e304c67b9a28a3f36e9acaafe195e52612e3ead7ddd2f27a2a905d2ca3e",
+                  "Cargo.toml.orig":  "a80d83c59757326693e576534a3467abd89ac9e2dfa379a5e46b755081f3f657",
+                  "LICENSE-APACHE-2.0":  "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+                  "LICENSE-MIT":  "9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d",
+                  "README.md":  "cf468efdcd6eb86ef6a2c0b1fbe6aca80f0df6a9d3016f77c0bfdb64dc4091c0",
+                  "src/dialog/mod.rs":  "ed391f94760a3f257ea7244fa62ad9b536e41f52f83b3994dedde23e5bbd287d",
+                  "src/dialog/windows.rs":  "cb340da9de1e9688e281be9bab126cdb48ddd5802c8aabceb82170c8f1f00518",
+                  "src/lib.rs":  "1081ef0edb2f6f6cbf38703d48c44fdf6888335d50bd82dc23b9919dbc076b60",
+                  "src/monitor/linux.rs":  "ebf2b48ebe0fa8facd0457fc5d16dc3156842e65a6c6334b1e0e4daa439160b2",
+                  "src/monitor/macos.rs":  "31bfae5bf45dff98c68a1f2f19d8787cba5e3f0575d7d13ec564e524d79abae8",
+                  "src/monitor/mod.rs":  "f3a4161b3306afa32edb416d6c81773749d32f3068018eb83e32f055ae4c31c2",
+                  "src/monitor/windows.rs":  "c177f8f1d7d7f40350076a89d495511c1fd24d79d2f44fb6a1efd0d7e1726657",
+                  "src/undecorated_resizing.rs":  "d0c25c1982c7eb3716c0b14f85faa5e26a3aca3faf50a36a0c1109f7a6728ab5",
+                  "src/util.rs":  "e62f698760e663b6d7204c1d48afa523487284e8be521992465353a9a66c428c",
+                  "src/webview.rs":  "e38ffe02336ee9bd558b444b6c6efa6a6a9fdfbaebfa8b441e925a37ae1828c8",
+                  "src/webview_permissions.rs":  "84b1285e40854edb12286731cc2232955fd95ac3bc881f7d5ebb6376a3cab3f3",
+                  "src/window/linux.rs":  "8cae057b27bd9576aefada130cb68eb0e39ce0e73af3dad793bab7d03b269ce2",
+                  "src/window/macos.rs":  "23568a452b8e0da7b6627929e6ae05dd54b8bcec16cf91cff7ce2b1a7f818142",
+                  "src/window/mod.rs":  "8f61d6436681791f011367948eef559192e8bee441446525c76c4917f15e5185",
+                  "src/window/windows.rs":  "87236e11e0e18c9a09a916072a5c6a599f0bda44d6416cbcf2ec7a17dd0f6c54"
+              }
+}

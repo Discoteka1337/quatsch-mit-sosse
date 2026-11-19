@@ -71,7 +71,7 @@ Diese Entscheidungen sind fest, damit Codex nicht bei jedem Schritt neu wählt.
 | Bereich | Festlegung |
 | --- | --- |
 | Plattform | Windows 11 x64, CPU-Betrieb als Standard |
-| App-Rahmen | Tauri 2, Rust-Workspace, Oberfläche mit Svelte 5 + TypeScript + Vite |
+| App-Rahmen | Tauri 2, Rust-Workspace, native Windows-Oberfläche ohne WebView2; Svelte 5 + TypeScript + Vite bleiben als separates Gerüst |
 | Audio | WASAPI über die Rust-Crate `cpal`, 16 kHz mono, 500 ms Vorlaufpuffer |
 | Spracherkennung | sherpa-onnx über `sherpa-rs`. Kandidaten: Parakeet TDT 0.6B v3 int8 (Basis), parakeet-primeline-onnx (Deutsch), Whisper large-v3-turbo (Rückfall). Standard nach Benchmark |
 | Sprachaktivität | Silero-VAD über sherpa-onnx |
@@ -82,6 +82,8 @@ Diese Entscheidungen sind fest, damit Codex nicht bei jedem Schritt neu wählt.
 | Lizenz | Apache-2.0, öffentliches GitHub-Repository, Datei NOTICE mit allen Modell-Lizenzen |
 
 ### Name, Ordner und technische Namen
+
+**Datenschutzkorrektur vom 17.11.2026:** [Entscheidung 0006](decisions/0006-native-fenster-ohne-webview2.md) ersetzt die ursprüngliche eingebettete Svelte-Oberfläche durch native Tauri-Fenster. Diese Korrektur gilt auch für die folgenden Bauschritte und die historischen Gerüst-Prompts: Es dürfen keine WebViews oder WebView2-SDK-Aufrufe in die Desktop-App zurückkehren. Die Rust-/npm-Prüfpflichten bleiben bestehen.
 
 Der Anzeigename darf Leerzeichen und ß enthalten. Alles, was in Dateinamen, Crates, Adressen und Bezeichnern landet, bleibt ASCII, weil Leerzeichen und ß dort in Werkzeugen, Installern und GitHub-Adressen Probleme machen.
 

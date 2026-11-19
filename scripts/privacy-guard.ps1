@@ -64,13 +64,21 @@ function Add-Finding {
 function Get-HttpAliases {
     param([string]$Content)
 
-    # Cargo supports renamed dependencies in inline tables and dedicated tables.
-    $declarations = @([regex]::Matches($Content, '(?m)^[ \t]*["'']?(?<alias>[\w-]+)["'']?[ \t]*=[ \t]*\{(?<body>[^}]+)\}'))
-    $declarations += @([regex]::Matches($Content, '(?m)^[ \t]*\[[^\r\n]*\b(?:dependencies|dev-dependencies|build-dependencies)\.["'']?(?<alias>[\w-]+)["'']?\][^\r\n]*(?<body>(?:\r?\n(?![ \t]*\[)[^\r\n]*)*)'))
+    # TOML allows the same dependency table as inline, header or dotted keys.
+    $key = '(?:"[^"\r\n]+"|''[^''\r\n]+''|[\w-]+)'
+    $keyPrefix = '(?:' + $key + '[ \t]*\.[ \t]*)*'
+    $aliasKey = '["'']?(?<alias>[\w-]+)["'']?'
+    $packageKey = '(?:package|"package"|''package'')'
+    $packageValue = '[ \t]*=[ \t]*["''](?:reqwest|ureq|hyper)["'']'
+    $declarations = @([regex]::Matches($Content, '(?m)^[ \t]*' + $keyPrefix + $aliasKey + '[ \t]*=[ \t]*\{(?<body>[^}]+)\}'))
+    $declarations += @([regex]::Matches($Content, '(?m)^[ \t]*\[' + $keyPrefix + '["'']?(?:dependencies|dev-dependencies|build-dependencies)["'']?[ \t]*\.[ \t]*' + $aliasKey + '[ \t]*\][^\r\n]*(?<body>(?:\r?\n(?![ \t]*\[)[^\r\n]*)*)'))
     foreach ($declaration in $declarations) {
-        if ($declaration.Groups['body'].Value -match '(?m)\bpackage\s*=\s*["''](?:reqwest|ureq|hyper)["'']') {
+        if ($declaration.Groups['body'].Value -match ('(?m)(?<![\w-])' + $packageKey + $packageValue)) {
             $declaration.Groups['alias'].Value.Replace('-', '_')
         }
+    }
+    foreach ($declaration in [regex]::Matches($Content, '(?m)^[ \t]*' + $keyPrefix + $aliasKey + '[ \t]*\.[ \t]*' + $packageKey + $packageValue)) {
+        $declaration.Groups['alias'].Value.Replace('-', '_')
     }
 }
 

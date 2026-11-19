@@ -14,6 +14,7 @@
     "windows": [
       {
         "label": "settings",
+        "create": false,
         "title": "Quatsch mit Soße",
         "url": "index.html",
         "width": 760,
@@ -25,6 +26,7 @@
       },
       {
         "label": "overlay",
+        "create": false,
         "title": "Quatsch mit Soße",
         "url": "index.html?window=overlay",
         "width": 280,
@@ -51,6 +53,7 @@
     "targets": ["nsis"],
     "icon": ["icons/icon.png", "icons/icon.ico"],
     "windows": {
+      "webviewInstallMode": { "type": "skip" },
       "nsis": {
         "installMode": "currentUser",
         "languages": ["German"]

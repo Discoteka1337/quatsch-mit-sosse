@@ -33,7 +33,23 @@ try {
 
     $plan = & "$fixtureRoot\scripts\check.ps1" -Stage V5 -PlanOnly
     Assert-Condition $plan.CanPass 'V5 wird durch erst später vorgesehene Dateien blockiert.'
-    Assert-Condition (@($plan.Checks | Where-Object { $_.State -eq 'NotScheduled' }).Count -eq 8) 'Spätere Prüfungen müssen ausdrücklich als noch nicht vorgesehen erscheinen.'
+    foreach ($nativeCheck in @('native-runtime', 'native-ui')) {
+        Assert-Condition ($plan.Checks.Id -contains $nativeCheck) "Die native Datenschutzkorrektur muss zentral geprüft werden: $nativeCheck"
+    }
+    Assert-Condition (@($plan.Checks | Where-Object { $_.State -eq 'NotScheduled' }).Count -eq 11) 'Spätere Prüfungen müssen ausdrücklich als noch nicht vorgesehen erscheinen.'
+    $measurementCheck = @($plan.Checks | Where-Object { $_.Id -eq 'measurement-rules' })
+    Assert-Condition ($measurementCheck.Count -eq 1 -and $measurementCheck[0].Reason -eq 'erst ab Schritt 0.3 vorgesehen') 'Die Messregression muss vor Schritt 0.3 als noch nicht vorgesehen erscheinen.'
+
+    foreach ($measurementPath in @('scripts/measure-idle.ps1', 'scripts/measure-idle.Tests.ps1', 'docs/benchmarks/idle-2026-11-17.json')) {
+        $measurementFile = Join-Path -Path "$fixtureRoot" -ChildPath "$measurementPath"
+        New-Item -Path "$([System.IO.Path]::GetDirectoryName($measurementFile))" -ItemType Directory -Force | Out-Null
+        [System.IO.File]::WriteAllText("$measurementFile", 'synthetic benchmark fixture')
+        foreach ($earlyStage in @('V5', '0.1')) {
+            $plan = & "$fixtureRoot\scripts\check.ps1" -Stage $earlyStage -PlanOnly
+            Assert-Condition (-not $plan.Allowed) "Begonnene Messdatei muss $earlyStage sperren: $measurementPath"
+        }
+        Remove-Item -LiteralPath "$measurementFile"
+    }
 
     foreach ($unsafePath in @('example.onnx', 'modell-ß.onnx', 'testdata/private/aufnahme-ß.txt')) {
         $unsafeFile = Join-Path -Path "$fixtureRoot" -ChildPath "$unsafePath"
@@ -76,10 +92,41 @@ try {
     New-Item -Path "$fixtureRoot\.github\workflows" -ItemType Directory -Force | Out-Null
     [System.IO.File]::WriteAllText("$fixtureRoot\.github\workflows\ci.yml", 'name: Test')
     $plan = & "$fixtureRoot\scripts\check.ps1" -PlanOnly
+    Assert-Condition (-not $plan.CanPass) 'Die Vollprüfung muss die Messregression und das Messskript verlangen.'
+    [System.IO.File]::WriteAllText("$fixtureRoot\scripts\measure-idle.ps1", 'exit 0')
+    $plan = & "$fixtureRoot\scripts\check.ps1" -PlanOnly
+    Assert-Condition (-not $plan.CanPass) 'Die Vollprüfung darf die fehlende Messregression nicht überspringen.'
+    [System.IO.File]::WriteAllText("$fixtureRoot\scripts\measure-idle.Tests.ps1", 'exit 0')
+    Remove-Item -LiteralPath "$fixtureRoot\scripts\measure-idle.ps1"
+    $plan = & "$fixtureRoot\scripts\check.ps1" -PlanOnly
+    Assert-Condition (-not $plan.CanPass) 'Eine Messregression ohne das Messskript muss die Vollprüfung blockieren.'
+    [System.IO.File]::WriteAllText("$fixtureRoot\scripts\measure-idle.ps1", 'exit 0')
+    $nativeRequirements = @('scripts/native-runtime.Tests.ps1', 'scripts/native-ui.Tests.ps1', 'vendor/tauri-runtime-wry/Cargo.toml', 'vendor/tauri-runtime-wry/src/lib.rs')
+    foreach ($requiredPath in $nativeRequirements) {
+        $requiredFile = Join-Path -Path "$fixtureRoot" -ChildPath "$requiredPath"
+        $plan = & "$fixtureRoot\scripts\check.ps1" -PlanOnly
+        Assert-Condition (-not $plan.CanPass) "Die native Pflichtvoraussetzung darf nicht fehlen: $requiredPath"
+        New-Item -Path "$([System.IO.Path]::GetDirectoryName($requiredFile))" -ItemType Directory -Force | Out-Null
+        [System.IO.File]::WriteAllText("$requiredFile", 'synthetic native prerequisite')
+    }
+    $plan = & "$fixtureRoot\scripts\check.ps1" -PlanOnly
     Assert-Condition $plan.CanPass 'Die Vollprüfung muss alle vorhandenen Voraussetzungen erkennen.'
-    Remove-Item -LiteralPath "$fixtureRoot\scripts\privacy-guard.ps1", "$fixtureRoot\app\ui\package.json"
+    Remove-Item -LiteralPath "$fixtureRoot\scripts\privacy-guard.ps1", "$fixtureRoot\app\ui\package.json", "$fixtureRoot\scripts\measure-idle.Tests.ps1", "$fixtureRoot\.github\workflows\ci.yml"
     Remove-Item -LiteralPath "$fixtureRoot\app\ui"
     Remove-Item -LiteralPath "$fixtureRoot\app"
+
+    git -C "$fixtureRoot" add -- 'scripts/measure-idle.ps1'
+    if ($LASTEXITCODE -ne 0) { throw 'Test-Messskript konnte nicht gestaged werden.' }
+    Remove-Item -LiteralPath "$fixtureRoot\scripts\measure-idle.ps1"
+    $plan = & "$fixtureRoot\scripts\check.ps1" -Stage '0.1' -PlanOnly
+    Assert-Condition (-not $plan.Allowed) 'Ein gelöschtes Messskript im Index muss den Modus 0.1 sperren.'
+    git -C "$fixtureRoot" -c user.name='QMS Test' -c user.email='test@example.invalid' commit --quiet -m 'Test: Messskript begonnen'
+    if ($LASTEXITCODE -ne 0) { throw 'Test-Messhistorie konnte nicht angelegt werden.' }
+    git -C "$fixtureRoot" add --update
+    git -C "$fixtureRoot" -c user.name='QMS Test' -c user.email='test@example.invalid' commit --quiet -m 'Test: Messskript entfernt'
+    if ($LASTEXITCODE -ne 0) { throw 'Test-Messlöschung konnte nicht aufgezeichnet werden.' }
+    $plan = & "$fixtureRoot\scripts\check.ps1" -Stage '0.1' -PlanOnly
+    Assert-Condition (-not $plan.Allowed) 'Auch ein nur noch historisches Messskript muss den Modus 0.1 sperren.'
 
     git -C "$fixtureRoot" add -- 'Cargo.toml'
     if ($LASTEXITCODE -ne 0) { throw 'Test-Manifest konnte nicht gestaged werden.' }

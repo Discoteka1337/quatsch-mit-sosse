@@ -3,3 +3,16 @@ name = "quatsch-mit-sosse-audio"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+
+[dependencies]
+crossbeam-channel = "0.5.15"
+
+[target.'cfg(windows)'.dependencies]
+cpal = { version = "0.18.2", default-features = false }
+
+[dev-dependencies]
+hound = "3.5.1"
+
+[[example]]
+name = "record_test"
+test = true

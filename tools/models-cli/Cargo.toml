@@ -1,0 +1,12 @@
+[package]
+name = "models-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ctrlc = "3.5"
+quatsch-mit-sosse-models = { path = "../../crates/models" }
+
+[dev-dependencies]
+tempfile = "3"

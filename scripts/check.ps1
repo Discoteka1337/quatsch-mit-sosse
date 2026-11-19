@@ -27,10 +27,15 @@ foreach ($file in $trackedFiles) {
 
 # A reduced stage must never hide an already started later stage.
 $laterPaths = @()
-if ($rank -lt 2) { $laterPaths += @('scripts/privacy-guard.ps1', '.github/workflows/ci.yml') }
+if ($rank -lt 2) {
+    $laterPaths += @('scripts/privacy-guard.ps1', '.github/workflows/ci.yml', 'scripts/measure-idle.ps1', 'scripts/measure-idle.Tests.ps1', 'docs/benchmarks/idle-*.json', 'scripts/native-runtime.Tests.ps1', 'scripts/native-ui.Tests.ps1', 'vendor/tauri-runtime-wry')
+}
 if ($rank -eq 0) { $laterPaths += @('Cargo.toml', 'Cargo.lock', 'app', 'crates') }
 if ($laterPaths.Count -gt 0) {
     $present = @($laterPaths | Where-Object { Test-Path -LiteralPath "$projectRoot/$_" })
+    if ($rank -lt 2 -and (Test-Path -LiteralPath "$projectRoot/docs/benchmarks" -PathType Container)) {
+        $present += @(Get-ChildItem -LiteralPath "$projectRoot/docs/benchmarks" -Filter 'idle-*.json' -File)
+    }
     $indexed = @(& git -C "$projectRoot" ls-files -- $laterPaths)
     if ($LASTEXITCODE -ne 0) { throw 'Der Entwicklungsstand im Git-Index konnte nicht geprüft werden.' }
     $head = & git -C "$projectRoot" rev-parse --verify --quiet 'HEAD'
@@ -56,13 +61,16 @@ $definitions = @(
     @{ Id = 'ci-rules'; Name = 'CI-Regressionstest'; Since = 2; Required = @('scripts/ci.Tests.ps1', '.github/workflows/ci.yml') }
     @{ Id = 'privacy-rules'; Name = 'Datenschutz-Regressionstest'; Since = 2; Required = 'scripts/privacy-guard.Tests.ps1' }
     @{ Id = 'privacy'; Name = 'Datenschutz-Wächter'; Since = 2; Required = 'scripts/privacy-guard.ps1' }
+    @{ Id = 'measurement-rules'; Name = 'Regressionstest der Leerlaufmessung'; Since = 2; Required = @('scripts/measure-idle.ps1', 'scripts/measure-idle.Tests.ps1'); Step = '0.3' }
+    @{ Id = 'native-runtime'; Name = 'Native Laufzeit ohne WebView2-Initialisierung'; Since = 2; Required = @('scripts/native-runtime.Tests.ps1', 'vendor/tauri-runtime-wry/Cargo.toml', 'vendor/tauri-runtime-wry/src/lib.rs') }
+    @{ Id = 'native-ui'; Name = 'Native Fenster- und Prozessprüfung'; Since = 2; Required = 'scripts/native-ui.Tests.ps1' }
 )
 $checks = foreach ($definition in $definitions) {
     $state = 'Ready'
     $reason = ''
     if ($rank -lt $definition.Since) {
         $state = 'NotScheduled'
-        $reason = if ($definition.Since -eq 1) { 'erst ab Schritt 0.1 vorgesehen' } else { 'erst ab Schritt 0.2 vorgesehen' }
+        $reason = if ($definition.ContainsKey('Step')) { "erst ab Schritt $($definition.Step) vorgesehen" } elseif ($definition.Since -eq 1) { 'erst ab Schritt 0.1 vorgesehen' } else { 'erst ab Schritt 0.2 vorgesehen' }
     } else {
         $missing = @($definition.Required | Where-Object { $_ -and -not (Test-Path -LiteralPath "$projectRoot/$_" -PathType Leaf) })
         if ($missing.Count -gt 0) {
@@ -102,7 +110,7 @@ try {
             continue
         }
         try {
-            if ($check.Id -in @('fmt', 'clippy', 'cargo-test') -and -not $msvcInitialized) {
+            if ($check.Id -in @('fmt', 'clippy', 'cargo-test', 'native-ui') -and -not $msvcInitialized) {
                 . "$PSScriptRoot\import-msvc.ps1"
                 Import-MsvcEnvironment
                 $msvcInitialized = $true
@@ -112,6 +120,15 @@ try {
                 'path' { & "$PSHOME\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$projectRoot\scripts\path-check.Tests.ps1" }
                 'ci-rules' { & "$PSHOME\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$projectRoot\scripts\ci.Tests.ps1" }
                 'privacy-rules' { & "$PSHOME\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$projectRoot\scripts\privacy-guard.Tests.ps1" }
+                'measurement-rules' { & "$PSHOME\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$projectRoot\scripts\measure-idle.Tests.ps1" }
+                'native-runtime' { & "$PSHOME\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$projectRoot\scripts\native-runtime.Tests.ps1" }
+                'native-ui' {
+                    npm --prefix "$projectRoot\app\ui" run build
+                    if ($LASTEXITCODE -ne 0) { throw 'Der UI-Build für die native Prüfung ist fehlgeschlagen.' }
+                    cargo build --locked --package quatsch-mit-sosse --features custom-protocol
+                    if ($LASTEXITCODE -ne 0) { throw 'Der App-Build für die native Prüfung ist fehlgeschlagen.' }
+                    & "$PSHOME\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$projectRoot\scripts\native-ui.Tests.ps1" -ExecutablePath "$env:CARGO_TARGET_DIR\debug\quatsch-mit-sosse.exe"
+                }
                 'git' {
                     git diff --check
                     if ($LASTEXITCODE -ne 0) { throw 'Arbeitskopie enthält Whitespace-Fehler.' }
