@@ -3,3 +3,16 @@ name = "quatsch-mit-sosse-stt"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+
+[dependencies]
+quatsch-mit-sosse-models = { path = "../models" }
+quatsch-mit-sosse-vad = { path = "../vad" }
+sherpa-rs.workspace = true
+thiserror = "2.0.18"
+
+[dev-dependencies]
+hound = "3.5.1"
+
+[[example]]
+name = "transcribe_file"
+test = true

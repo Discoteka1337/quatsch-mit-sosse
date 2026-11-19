@@ -23,5 +23,13 @@ version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
 
+[workspace.dependencies]
+sherpa-rs = { version = "=0.6.8", default-features = false, features = ["download-binaries", "sys"] }
+
+# The prebuilt native runtime uses the release CRT, also in Rust debug builds.
+# Prevent sherpa-rs-sys's build script from additionally linking msvcrtd.
+[profile.dev.package.sherpa-rs-sys]
+debug-assertions = false
+
 [patch.crates-io]
 tauri-runtime-wry = { path = "vendor/tauri-runtime-wry" }

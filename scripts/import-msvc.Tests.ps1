@@ -5,8 +5,22 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $previousEnvironment = [Environment]::GetEnvironmentVariables('Process')
 $previousLocation = (Get-Location).ProviderPath
+$temporaryRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
+$testOutputRoot = Join-Path -Path "$temporaryRoot" -ChildPath "qms sherpa ß $([Guid]::NewGuid().ToString('N'))"
+
+function Assert-CargoOutputDirectories {
+    foreach ($profile in @('debug', 'release')) {
+        foreach ($directory in @('deps', 'examples')) {
+            $expected = Join-Path -Path "$env:CARGO_TARGET_DIR" -ChildPath "$profile\$directory"
+            if (-not (Test-Path -LiteralPath "$expected" -PathType Container)) {
+                throw "Die sherpa-Ausgabe muss vor dem Cargo-Build vorbereitet sein: $expected"
+            }
+        }
+    }
+}
 
 try {
+    $env:CARGO_TARGET_DIR = Join-Path -Path "$testOutputRoot" -ChildPath 'erste Ausgabe'
     . "$PSScriptRoot\import-msvc.ps1"
     $vswherePath = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
     $detectedInstallation = & "$vswherePath" -latest -products '*' -version '[17.0,19.0)' -requires 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64' -property installationPath
@@ -34,8 +48,11 @@ try {
     }.GetNewClosure()
     try {
         Import-MsvcEnvironment
+        Assert-CargoOutputDirectories
         $env:VisualStudioVersion = '18.0'
+        $env:CARGO_TARGET_DIR = Join-Path -Path "$testOutputRoot" -ChildPath 'zweite Ausgabe'
         Import-MsvcEnvironment
+        Assert-CargoOutputDirectories
         if ($env:VisualStudioVersion -ne '18.0') {
             throw 'Eine bereits initialisierte VS2026-Umgebung darf nicht erneut geladen werden.'
         }
@@ -53,6 +70,7 @@ try {
 
     . "$PSScriptRoot\import-msvc.ps1"
     Import-MsvcEnvironment
+    Assert-CargoOutputDirectories
     if ($env:VisualStudioVersion -notin @('17.0', '18.0') -or $env:VSCMD_ARG_TGT_ARCH -ne 'x64' -or $env:VSCMD_ARG_HOST_ARCH -ne 'x64') {
         throw 'Die Initialisierung muss Visual Studio 2022 oder 2026 für x64-Builds auswählen.'
     }
@@ -73,6 +91,7 @@ try {
 
     $initializedEnvironment = [Environment]::GetEnvironmentVariables('Process')
     Import-MsvcEnvironment
+    Assert-CargoOutputDirectories
     $repeatedEnvironment = [Environment]::GetEnvironmentVariables('Process')
     if ($initializedEnvironment.Count -ne $repeatedEnvironment.Count) {
         throw 'Wiederholtes Initialisieren darf keine weiteren Umgebungsvariablen erzeugen.'
@@ -85,8 +104,15 @@ try {
     if ((Get-Location).ProviderPath -cne $previousLocation) {
         throw 'Die MSVC-Initialisierung darf das Arbeitsverzeichnis nicht ändern.'
     }
-    Write-Host 'MSVC-Regressionstest bestanden: Enterprise-/VS2026-Auswahl, x64, Laufzeitbibliothek, passender Linker, Telemetrie aus und idempotente Initialisierung.'
+    Write-Host 'MSVC-Regressionstest bestanden: Enterprise-/VS2026-Auswahl, x64, Laufzeitbibliothek, passender Linker, Telemetrie aus, sherpa-Ausgabeordner und idempotente Initialisierung.'
 } finally {
+    $resolvedOutputRoot = [System.IO.Path]::GetFullPath("$testOutputRoot")
+    if (-not $resolvedOutputRoot.StartsWith($temporaryRoot.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Das Testverzeichnis liegt außerhalb des temporären Verzeichnisses.'
+    }
+    if (Test-Path -LiteralPath "$resolvedOutputRoot" -PathType Container) {
+        Remove-Item -LiteralPath "$resolvedOutputRoot" -Recurse -Force
+    }
     foreach ($name in @([Environment]::GetEnvironmentVariables('Process').Keys)) {
         if (-not $previousEnvironment.Contains($name)) {
             [Environment]::SetEnvironmentVariable($name, $null, 'Process')

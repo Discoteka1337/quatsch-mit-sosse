@@ -3,3 +3,14 @@ name = "quatsch-mit-sosse-vad"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+
+[dependencies]
+ort-sys = { version = "=2.0.0-rc.12", default-features = false, features = ["api-17", "disable-linking"] }
+sherpa-rs.workspace = true
+thiserror = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_System_LibraryLoader"] }
+
+[dev-dependencies]
+quatsch-mit-sosse-models = { path = "../models" }

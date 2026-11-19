@@ -2,7 +2,7 @@
 
 Deutsche, offline-first Diktier-App für Windows 11. Geplant sind lokale Spracherkennung und Textbereinigung sowie optionale, ausdrücklich aktivierte KI-Anbieter. Die Desktop-App verwendet Tauri 2, Rust und native Windows-Steuerelemente. Das Svelte-/TypeScript-Gerüst bleibt separat erhalten.
 
-**Status: Schritt 1.2 – Modell-Manager.** Die Audio-Crate bietet WASAPI-Aufnahme mit 16 kHz mono, 500 ms Vorlauf, RMS-Pegel und Rückfall bei Geräteausfällen. Der Modell-Manager installiert die vier geprüften ASR-/VAD-Modelle mit SHA256-Prüfung und fortsetzbaren Downloads. Aufnahme und Modellverwaltung sind über Kommandozeilenprogramme nutzbar; die Verbindung mit Tray, Hotkey und Spracherkennung folgt in späteren Schritten.
+**Status: Schritt 1.3 – Spracherkennung und Sprachaktivität.** WASAPI-Aufnahmen mit 16 kHz mono können lokal mit beiden Parakeet-Modellen oder Whisper erkannt werden. Silero erkennt Sprachabschnitte; lange Aufnahmen werden an Pausen in höchstens 20 Sekunden lange Stücke geteilt. Modelle laden erst bei Bedarf und werden nach standardmäßig fünf Minuten Leerlauf automatisch entladen. Aufnahme, Modellverwaltung und Erkennung sind über Kommandozeilenprogramme nutzbar; die Verbindung mit Tray und Hotkey folgt in späteren Schritten.
 
 **WebView2-Diagnostikpfad entfernt.** Einstellungen und Overlay sind native Fenster; die App startet weder WebView2 noch dessen SDK-Versionsabfrage. Dafür wird eine eng begrenzte, geprüfte Tauri-Abhängigkeitskorrektur verwendet. Entscheidung, Tests und Wartung stehen in [Entscheidung 0006](docs/decisions/0006-native-fenster-ohne-webview2.md). Systemweite Windows-Diagnostik wird dadurch nicht verändert.
 
@@ -60,9 +60,9 @@ Manuell prüfen:
 Im Projektordner die Entwicklerumgebung laden und das Beispiel starten:
 
 ```powershell
+$env:CARGO_TARGET_DIR = "C:\qms-target"
 . "./scripts/import-msvc.ps1"
 Import-MsvcEnvironment
-$env:CARGO_TARGET_DIR = "C:\qms-target"
 cargo run --package quatsch-mit-sosse-audio --example record_test
 ```
 
@@ -84,9 +84,9 @@ Die API bietet `input_devices`, `default_input_device`, `AudioCapture::start`, `
 Im Projektordner die Entwicklerumgebung laden und die verfügbaren Modelle anzeigen:
 
 ```powershell
+$env:CARGO_TARGET_DIR = "C:\qms-target"
 . "./scripts/import-msvc.ps1"
 Import-MsvcEnvironment
-$env:CARGO_TARGET_DIR = "C:\qms-target"
 cargo run --package models-cli -- list
 cargo run --package models-cli -- install parakeet-v3-int8
 cargo run --package models-cli -- install parakeet-primeline-de-int8
@@ -101,7 +101,37 @@ Während einer blockierten Netzwerkoperation kann ein Abbruch bis zu 30 Sekunden
 
 Downloadadressen, exakte Dateigrößen, SHA256-Werte, enthaltene Laufzeitdateien, Lizenzen und Namensnennungen stehen in [manifest.toml](crates/models/manifest.toml). Auch Weiterleitungen werden gegen die exakte Hostliste geprüft; neue CDN-Hosts benötigen eine geprüfte Manifeständerung. Herkunft und Hash-Nachweis beschreibt [Entscheidung 0008](docs/decisions/0008-modellquellen-und-installation.md); die Namensnennungen stehen zusätzlich in [NOTICE](NOTICE).
 
-Manuell prüfen: ein gewünschtes Modell installieren, während des Downloads Strg+C drücken und denselben Befehl erneut starten. Danach muss `list` den Zustand „installiert“ anzeigen. Spracherkennung und ein Qualitätsvergleich der Modelle sind erst ab Schritt 1.3 beziehungsweise 1.5 vorgesehen.
+Manuell prüfen: ein gewünschtes Modell installieren, während des Downloads Strg+C drücken und denselben Befehl erneut starten. Danach muss `list` den Zustand „installiert“ anzeigen. Der systematische Qualitätsvergleich der Modelle ist erst ab Schritt 1.5 vorgesehen.
+
+## Spracherkennung prüfen
+
+Voraussetzung: Das jeweilige ASR-Modell und `silero-vad` sind mit `models-cli` installiert. Die Erkennung lädt nichts aus dem Netz. Die Entwicklerumgebung auch in einer bereits eingerichteten MSVC-Shell laden: Sie bereitet die von `sherpa-rs` benötigten DLL-Ausgabeordner vor. LLVM/Clang wird für die Rust-Bindings benötigt; beim ersten Build lädt die Abhängigkeit die SHA256-geprüfte native CPU-Laufzeit.
+
+```powershell
+$env:CARGO_TARGET_DIR = "C:\qms-target"
+. "./scripts/import-msvc.ps1"
+Import-MsvcEnvironment
+cargo run --package quatsch-mit-sosse-stt --example transcribe_file -- "testdata/private/record_test.wav" parakeet-v3-int8
+```
+
+Das Beispiel akzeptiert WAV mit **16 kHz mono**, als Float32 oder PCM16/24/32. Es schreibt das Ergebnis als UTF-8 nach `testdata/private/transcribe_file.txt` im Projektordner; eine vorhandene Ergebnisdatei wird ersetzt. Transkript und Audio erscheinen nie im Terminal oder in Logs. Im Terminal stehen nur Status und Verarbeitungsdauer einschließlich Laden und VAD. Die Ergebnisdatei bleibt wie die Aufnahme von Git ausgeschlossen.
+
+Danach denselben Befehl mit `parakeet-primeline-de-int8` beziehungsweise optional `whisper-large-v3-turbo` starten und jeweils die Ergebnisdatei lesen. Manuell prüfen: Der gesprochene deutsche Text stimmt erkennbar, insbesondere der erste Laut und längere Sätze über die Stückgrenzen. Ein Qualitätsbenchmark ist noch nicht vorgesehen.
+
+Die Bibliothek bietet `SpeechEngine::transcribe`, `Transcript { text, processing_duration }`, `TransducerEngine`, `WhisperEngine` und `create_engine`. `EngineConfig` stellt ASR-Threads (Standard 2) und `idle_timeout` (Standard 300 Sekunden) ein; `Duration::ZERO` entlädt nach jedem Aufruf. `with_manager` erlaubt einen eigenen Modellordner. Ein schlafender Helfer entlädt VAD und ASR ohne weiteren Aufruf; laufende Erkennung wird nicht unterbrochen. Stille lädt nur VAD, kein ASR-Modell. Die synchronen Aufrufe gehören später in einen Arbeits-Thread.
+
+`language_hint: None` lässt die Sprache automatisch erkennen. Whisper übernimmt einen unterstützten Sprachcode (z. B. `de`); bei geändertem Hinweis wird dessen ASR-Modell neu geladen. Parakeet erkennt die Sprache selbst und akzeptiert unterstützte Hinweise ohne Zwangsumschaltung. Ungültige Hinweise werden vor dem nativen Aufruf abgewiesen. `SileroVad` bietet separat `speech_segments`, `has_speech`, `unload` und konfigurierbare VAD-Threads; seine halb offenen Sample-Intervalle beziehen sich auf die Originalaufnahme. Wer VAD separat verwendet, gibt es mit `unload` oder `Drop` frei; die STT-Engines übernehmen dessen Leerlaufverwaltung.
+
+Modellfreie Tests laufen im regulären Prüflauf. Modelltests sind mit `#[ignore]` markiert und laden ebenfalls nichts herunter. Für ein installiertes Modell gezielt starten:
+
+```powershell
+cargo test --package quatsch-mit-sosse-vad --test installed_models -- --ignored --test-threads=1
+cargo test --package quatsch-mit-sosse-stt --test installed_models parakeet_v3 -- --ignored --test-threads=1
+cargo test --package quatsch-mit-sosse-stt --test installed_models parakeet_primeline -- --ignored --test-threads=1
+cargo test --package quatsch-mit-sosse-stt --test installed_models whisper -- --ignored --test-threads=1
+```
+
+Die ASR-Tests verwenden standardmäßig `testdata/private/record_test.wav`; alternativ vorher `$env:QMS_TEST_WAV = "C:\Pfad\aufnahme.wav"` setzen. Fehlende Modelle oder Aufnahmen lassen den ausdrücklich gestarteten Test fehlschlagen. Details zu Aufteilung, Leerlauf, nativer Laufzeit und Telemetrieabschaltung stehen in [Entscheidung 0009](docs/decisions/0009-spracherkennung-und-sprachaktivitaet.md).
 
 ## Leerlauf und Startzeit messen
 
