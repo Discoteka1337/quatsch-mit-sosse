@@ -105,6 +105,8 @@ Manuell prüfen: ein gewünschtes Modell installieren, während des Downloads St
 
 ## Spracherkennung prüfen
 
+Der deutsche primeLine-Encoder wird beim Laden lokal in eine temporäre ONNX-Datei mit eingebetteten Gewichten umgewandelt. Dafür werden zusätzlich ungefähr 652 MB freier Platz im Modellordner benötigt; nach erfolgreichem Laden wird die Datei gelöscht. Hintergrund: [Entscheidung 0010](docs/decisions/0010-primeline-externe-onnx-gewichte.md).
+
 Voraussetzung: Das jeweilige ASR-Modell und `silero-vad` sind mit `models-cli` installiert. Die Erkennung lädt nichts aus dem Netz. Die Entwicklerumgebung auch in einer bereits eingerichteten MSVC-Shell laden: Sie bereitet die von `sherpa-rs` benötigten DLL-Ausgabeordner vor. LLVM/Clang wird für die Rust-Bindings benötigt; beim ersten Build lädt die Abhängigkeit die SHA256-geprüfte native CPU-Laufzeit.
 
 ```powershell

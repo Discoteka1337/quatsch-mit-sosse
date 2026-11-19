@@ -139,6 +139,7 @@ impl Engine {
                     session.recognizer = Some(self.load_recognizer(language)?);
                     session.language = language.into();
                 }
+
                 let recognizer = session.recognizer.as_mut().ok_or(Error::Recognition)?;
                 recognize_chunks(samples, &chunks, |chunk| Ok(recognizer.transcribe(chunk)))
             },
@@ -155,10 +156,20 @@ impl Engine {
             .path_of(&self.model.id)
             .map_err(|_| Error::ModelAccess)?
             .ok_or(Error::ModelNotInstalled)?;
+
         let threads = self.config.num_threads as i32;
+        let inline_encoder = if self.model.id == "parakeet-primeline-de-int8" {
+            Some(crate::onnx::prepare_encoder(&root)?)
+        } else {
+            None
+        };
+        let encoder = match &inline_encoder {
+            Some(file) => file.to_str().ok_or(Error::InvalidPath)?.to_owned(),
+            None => model_path(&root, "encoder.int8.onnx")?,
+        };
         match self.kind {
             Kind::Transducer => TransducerRecognizer::new(TransducerConfig {
-                encoder: model_path(&root, "encoder.int8.onnx")?,
+                encoder,
                 decoder: model_path(&root, "decoder.int8.onnx")?,
                 joiner: model_path(&root, "joiner.int8.onnx")?,
                 tokens: model_path(&root, "tokens.txt")?,

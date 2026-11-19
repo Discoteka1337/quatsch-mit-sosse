@@ -3323,6 +3323,7 @@ dependencies = [
  "quatsch-mit-sosse-models",
  "quatsch-mit-sosse-vad",
  "sherpa-rs",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 

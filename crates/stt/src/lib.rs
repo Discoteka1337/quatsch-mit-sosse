@@ -1,6 +1,7 @@
 mod chunks;
 mod engine;
 mod idle;
+mod onnx;
 
 use std::time::Duration;
 

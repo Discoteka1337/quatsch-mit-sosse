@@ -9,6 +9,7 @@ quatsch-mit-sosse-models = { path = "../models" }
 quatsch-mit-sosse-vad = { path = "../vad" }
 sherpa-rs.workspace = true
 thiserror = "2.0.18"
+tempfile = "3"
 
 [dev-dependencies]
 hound = "3.5.1"
