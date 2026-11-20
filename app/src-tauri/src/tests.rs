@@ -66,6 +66,7 @@ fn native_texts_come_from_the_shared_german_catalog() {
     assert_eq!(text.app_name, "Quatsch mit Soße");
     assert_eq!(text.settings, "Einstellungen");
     assert_eq!(text.quit, "Beenden");
+    assert_eq!(text.reinsert, "Letzten Text erneut einfügen");
     for source in [
         include_str!("../../ui/src/locales/de.json"),
         include_str!("../../ui/src/locales/en.json"),
@@ -80,6 +81,12 @@ fn native_texts_come_from_the_shared_german_catalog() {
         assert!(!locale.overlay_preferences_error.is_empty());
         assert!(!locale.overlay_administrator_help.is_empty());
     }
+}
+
+#[cfg(target_env = "msvc")]
+#[test]
+fn native_runtime_uses_utf8_for_installed_model_paths() {
+    assert_eq!(unsafe { windows::Win32::Globalization::GetACP() }, 65001);
 }
 
 #[test]

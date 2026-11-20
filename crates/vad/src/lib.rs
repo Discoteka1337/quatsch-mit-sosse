@@ -101,6 +101,19 @@ impl SileroVad {
         self.detector.is_some()
     }
 
+    /// Opens the native model while the caller can guarantee the files are available.
+    pub fn load(&mut self) -> Result<()> {
+        if self.detector.is_none() {
+            if !self.model_path.is_file() || std::fs::File::open(&self.model_path).is_err() {
+                return Err(Error::ModelUnavailable);
+            }
+            initialize_runtime()?;
+            let path = model_path_string(&self.model_path)?;
+            self.detector = Some(native::Detector::new(&path, &self.config)?);
+        }
+        Ok(())
+    }
+
     pub fn unload(&mut self) {
         self.detector = None;
     }
@@ -120,16 +133,7 @@ impl SileroVad {
         if samples.is_empty() {
             return Ok(Vec::new());
         }
-        if self.detector.is_none() {
-            if !self.model_path.is_file() || std::fs::File::open(&self.model_path).is_err() {
-                return Err(Error::ModelUnavailable);
-            }
-            initialize_runtime()?;
-            self.detector = Some(native::Detector::new(
-                &model_path_string(&self.model_path)?,
-                &self.config,
-            )?);
-        }
+        self.load()?;
         let detector = self.detector.as_mut().ok_or(Error::ModelLoad)?;
         let padding =
             (self.config.speech_padding.as_secs_f64() * f64::from(SAMPLE_RATE)).round() as usize;

@@ -141,7 +141,11 @@ Sperrdateien unter `.locks` bleiben bestehen.
 `is_installed` prüft Marker, Manifest-Fingerprint und die Größen aller
 erforderlichen Dateien. Es hasht die installierten Modellgewichte nicht bei
 jeder Statusabfrage erneut. `path_of` gibt nur für diesen vollständigen Zustand
-einen Pfad zurück. `remove` entfernt Modell, Staging und Downloadreste.
+einen Pfad zurück. Zum Laden hält `Manager::acquire` eine gemeinsame
+Lesesperre, bis der native Konstruktor seine Dateien geöffnet hat. Mehrere
+Erkenner können gleichzeitig laden. Ein paralleles `install` oder `remove`
+meldet währenddessen, dass das Modell belegt ist. `remove` entfernt Modell,
+Staging und Downloadreste.
 
 ## Prüfungen in Schritt 1.2
 

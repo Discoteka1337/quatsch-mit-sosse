@@ -123,6 +123,14 @@ struct Harness {
 }
 impl Harness {
     fn new(online: bool, selection: DeviceSelection) -> Self {
+        Self::with_event_hook(online, selection, |_| {})
+    }
+
+    fn with_event_hook(
+        online: bool,
+        selection: DeviceSelection,
+        mut on_event: impl FnMut(&AudioEvent) + Send + 'static,
+    ) -> Self {
         let online = Arc::new(AtomicBool::new(online));
         let live = Arc::new(AtomicUsize::new(0));
         let attempts = Arc::new(AtomicUsize::new(0));
@@ -142,6 +150,7 @@ impl Harness {
                 let _ = levels_tx.send(level);
             },
             move |event| {
+                on_event(&event);
                 let _ = events_tx.send(event);
             },
         )
@@ -314,6 +323,54 @@ fn transient_glitch_reopens_the_selected_device_without_fallback() {
             .try_iter()
             .any(|e| matches!(e, AudioEvent::InputDiscontinuity))
     );
+}
+
+#[test]
+fn pending_driver_fault_is_reported_before_a_take_can_be_confirmed() {
+    for fatal in [false, true] {
+        let (paused, wait_for_pause) = bounded(1);
+        let (resume, wait_for_resume) = bounded(1);
+        let (finished, finish_response) = bounded(1);
+        let (observed, order) = bounded(1);
+        let pending_reply = finished.clone();
+        let mut h =
+            Harness::with_event_hook(true, DeviceSelection::Default, move |event| match event {
+                AudioEvent::RealtimeUnavailable => {
+                    paused.send(()).unwrap();
+                    wait_for_resume
+                        .recv_timeout(Duration::from_secs(3))
+                        .unwrap();
+                }
+                AudioEvent::InputDiscontinuity | AudioEvent::DeviceLost { .. } => {
+                    observed.send(pending_reply.is_empty()).unwrap();
+                }
+                _ => {}
+            });
+        let (_, input) = h.connection();
+        h.audio.start_recording().unwrap();
+        send_samples(&input, 0.25, 800);
+        input.notices.send(AudioError::RealtimeDenied).unwrap();
+        wait_for_pause.recv_timeout(Duration::from_secs(3)).unwrap();
+        if fatal {
+            input.errors.send(AudioError::NoInputDevice).unwrap();
+        } else {
+            input.notices.send(AudioError::StreamGlitch).unwrap();
+        }
+        h.audio
+            .commands
+            .as_ref()
+            .unwrap()
+            .send(worker::Command::Finish(finished))
+            .unwrap();
+        resume.send(()).unwrap();
+        assert!(order.recv_timeout(Duration::from_secs(3)).unwrap());
+        let recording = finish_response
+            .recv_timeout(Duration::from_secs(3))
+            .unwrap()
+            .unwrap();
+        assert_eq!(recording.samples().len(), 800);
+        h.audio.stop_ready().unwrap();
+    }
 }
 
 #[test]

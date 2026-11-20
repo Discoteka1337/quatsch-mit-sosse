@@ -14,9 +14,9 @@ mod uia;
 pub use clipboard::copy_recovered_text;
 pub use config::InjectConfig;
 #[cfg(windows)]
-use native::Target;
+use native::InsertTarget as Target;
 #[cfg(windows)]
-pub use native::insert;
+pub use native::{InsertTarget, insert};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
 pub enum InjectMethod {

@@ -20,7 +20,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{BOOL, BSTR};
 
 pub(crate) fn insert(target: &Target, text: &str) -> Result<(), InjectError> {
-    target.check()?;
+    target.check_foreground()?;
     // The caller supplies a dedicated thread without windows or a pre-existing apartment.
     unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok() }.map_err(unavailable)?;
     let result = insert_in_apartment(target, text);
@@ -87,7 +87,7 @@ fn insert_in_apartment(target: &Target, text: &str) -> Result<(), InjectError> {
         {
             return Err(InjectError::TargetChanged);
         }
-        target.check()
+        target.check_foreground()
     };
     let hwnd = unsafe { element.CurrentNativeWindowHandle() }.map_err(unavailable)?;
     if let Some(kind) = native_edit(hwnd) {
@@ -180,10 +180,10 @@ fn check_window(
     loop {
         let hwnd = unsafe { parent.CurrentNativeWindowHandle() }.map_err(unavailable)?;
         if !hwnd.0.is_null() {
-            if unsafe { GetAncestor(hwnd, GA_ROOT) } != target.hwnd {
+            if unsafe { GetAncestor(hwnd, GA_ROOT) } != target.hwnd() {
                 return Err(InjectError::TargetChanged);
             }
-            return target.check();
+            return target.check_foreground();
         }
         parent = unsafe { walker.GetParentElement(&parent) }.map_err(unavailable)?;
     }

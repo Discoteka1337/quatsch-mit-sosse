@@ -19,11 +19,11 @@ pub(crate) fn insert(target: &Target, text: &str) -> Result<(), InjectError> {
                 thread::sleep(Duration::from_millis(4));
             }
             check_modifiers()?;
-            target.check()
+            target.check_foreground()
         },
         send,
     )?;
-    target.check()
+    target.check_foreground()
 }
 
 pub(crate) fn paste_shortcut(target: &Target) -> Result<(), InjectError> {
@@ -31,7 +31,7 @@ pub(crate) fn paste_shortcut(target: &Target) -> Result<(), InjectError> {
     if key_is_down(VK_V) {
         return Err(InjectError::ModifiersHeld);
     }
-    target.check()?;
+    target.check_foreground()?;
     send_block(&paste_events(), false, &mut send)
 }
 

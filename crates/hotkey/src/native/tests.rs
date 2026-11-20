@@ -3,7 +3,54 @@ use crate::HotkeyMode;
 
 fn session() -> (Session, Receiver<HotkeyEvent>) {
     let (send, events) = mpsc::channel();
-    (Session::new(HotkeyConfig::default(), send), events)
+    (
+        Session::new(HotkeyConfig::default(), action_sender(send)),
+        events,
+    )
+}
+
+#[test]
+fn observed_shortcuts_report_an_unavailable_target_on_a_blocked_press() {
+    let (send, events) = mpsc::channel();
+    let mut session = Session::new(
+        HotkeyConfig::default(),
+        Box::new(move |notice| {
+            send.send(notice).unwrap();
+        }),
+    );
+    for vk in [0xa2, 0xa0, 0x20] {
+        session.key(vk, true);
+    }
+    assert!(matches!(events.try_recv(), Ok(HookNotice::Unavailable)));
+    session.key(0x20, false);
+    assert!(events.try_recv().is_err());
+}
+
+#[test]
+fn lost_integrity_during_recording_reports_the_reason_after_the_cancel() {
+    let (send, events) = mpsc::channel();
+    let mut session = Session::new(
+        HotkeyConfig::default(),
+        Box::new(move |notice| send.send(notice).unwrap()),
+    );
+    session.set_target(Target::Available);
+    session.set_target(Target::Unknown);
+    assert!(events.try_recv().is_err());
+    session.set_target(Target::Available);
+    for vk in [0xa2, 0xa0, 0x20] {
+        session.key(vk, true);
+    }
+    session.set_target(Target::Unknown);
+    assert!(matches!(
+        events.try_recv(),
+        Ok(HookNotice::Action(HotkeyEvent::Start))
+    ));
+    assert!(matches!(
+        events.try_recv(),
+        Ok(HookNotice::Action(HotkeyEvent::Cancel))
+    ));
+    assert!(matches!(events.try_recv(), Ok(HookNotice::Unavailable)));
+    assert!(events.try_recv().is_err());
 }
 
 #[test]

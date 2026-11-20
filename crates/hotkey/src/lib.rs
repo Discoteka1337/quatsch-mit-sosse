@@ -10,7 +10,7 @@ mod native;
 
 pub use binding::{Hotkey, HotkeyWarning, ParseHotkeyError};
 #[cfg(windows)]
-pub use native::HotkeyHook;
+pub use native::{HookNotice, HotkeyHook};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HotkeyMode {

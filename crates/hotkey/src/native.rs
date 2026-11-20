@@ -21,6 +21,24 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::Owned;
 
+/// Foreground identities and actions only. Key events never leave the hook.
+pub enum HookNotice {
+    Foreground { window: usize, available: bool },
+    Action(HotkeyEvent),
+    Unavailable,
+    Stopped,
+}
+
+type Observer = Box<dyn FnMut(HookNotice) + Send>;
+
+fn action_sender(events: Sender<HotkeyEvent>) -> Observer {
+    Box::new(move |notice| {
+        if let HookNotice::Action(event) = notice {
+            let _ = events.send(event);
+        }
+    })
+}
+
 /// Keeps the hook thread alive. Dropping it removes both hooks and joins the thread.
 pub struct HotkeyHook {
     shutdown: Arc<OwnedHandle>,
@@ -30,8 +48,19 @@ pub struct HotkeyHook {
 impl HotkeyHook {
     /// Returns after both hooks are installed. Process events outside the hook thread.
     pub fn start(config: HotkeyConfig) -> io::Result<(Self, Receiver<HotkeyEvent>)> {
-        config.validate()?;
         let (events, receiver) = mpsc::channel();
+        Ok((
+            Self::start_observed(config, action_sender(events))?,
+            receiver,
+        ))
+    }
+
+    /// Called on the hook thread. Observers must only capture identities and enqueue work.
+    pub fn start_observed(
+        config: HotkeyConfig,
+        observe: impl FnMut(HookNotice) + Send + 'static,
+    ) -> io::Result<Self> {
+        config.validate()?;
         let (ready, startup) = mpsc::channel();
         // Transfer sole ownership of the unnamed event to an OS handle shared with the worker.
         let shutdown = Arc::new(unsafe {
@@ -41,7 +70,7 @@ impl HotkeyHook {
         let worker = thread::Builder::new()
             .name("qms-hotkey".into())
             .spawn(move || {
-                if let Err(error) = run(config, events, &ready, &stop) {
+                if let Err(error) = run(config, Box::new(observe), &ready, &stop) {
                     let _ = ready.send(Err(error));
                 }
             })?;
@@ -52,7 +81,7 @@ impl HotkeyHook {
         startup
             .recv()
             .map_err(|_| io::Error::other("Der Hotkey-Thread wurde beim Start beendet."))??;
-        Ok((hook, receiver))
+        Ok(hook)
     }
 }
 
@@ -78,15 +107,15 @@ enum Target {
 struct Session {
     machine: StateMachine,
     target: Target,
-    events: Sender<HotkeyEvent>,
+    observe: Observer,
 }
 
 impl Session {
-    fn new(config: HotkeyConfig, events: Sender<HotkeyEvent>) -> Self {
+    fn new(config: HotkeyConfig, observe: Observer) -> Self {
         Self {
             machine: StateMachine::new(config),
             target: Target::Unknown,
-            events,
+            observe,
         }
     }
 
@@ -96,10 +125,13 @@ impl Session {
         }
         self.target = target;
         if target != Target::Available && self.machine.cancel_recording() {
-            let _ = self.events.send(HotkeyEvent::Cancel);
+            (self.observe)(HookNotice::Action(HotkeyEvent::Cancel));
+            if target == Target::Unknown {
+                (self.observe)(HookNotice::Unavailable);
+            }
         }
         if target == Target::Elevated {
-            let _ = self.events.send(HotkeyEvent::ElevatedTarget);
+            (self.observe)(HookNotice::Action(HotkeyEvent::ElevatedTarget));
         }
     }
 
@@ -107,9 +139,12 @@ impl Session {
         let outcome = self.machine.key(vk, down);
         if let Some(event) = outcome.event {
             if self.target == Target::Available {
-                let _ = self.events.send(event);
+                (self.observe)(HookNotice::Action(event));
             } else {
                 self.machine.cancel_recording();
+                if self.target == Target::Unknown {
+                    (self.observe)(HookNotice::Unavailable);
+                }
             }
         }
         outcome.suppress
@@ -140,6 +175,10 @@ impl HookState {
                 self.session.machine.sync_down(vk, down);
             }
         }
+        (self.session.observe)(HookNotice::Foreground {
+            window: window.0 as usize,
+            available: target == Target::Available,
+        });
         self.session.set_target(target);
     }
 }
@@ -149,13 +188,13 @@ thread_local! { static STATE: RefCell<Option<HookState>> = const { RefCell::new(
 
 fn run(
     config: HotkeyConfig,
-    events: Sender<HotkeyEvent>,
+    observe: Observer,
     ready: &Sender<io::Result<()>>,
     stop: &OwnedHandle,
 ) -> io::Result<()> {
     let own_level = IntegrityLevel::current()?;
     let mut state = HookState {
-        session: Session::new(config, events),
+        session: Session::new(config, observe),
         own_level,
         foreground: HWND::default(),
     };
@@ -187,26 +226,30 @@ fn run(
     let _foreground = unsafe { Owned::new(foreground) };
     state.refresh_target(unsafe { GetForegroundWindow() });
     STATE.set(Some(state));
-    if ready.send(Ok(())).is_ok() {
-        pump_messages(HANDLE(stop.as_raw_handle()));
-    }
+    let stopped_normally =
+        ready.send(Ok(())).is_err() || pump_messages(HANDLE(stop.as_raw_handle()));
     if let Some(mut state) = STATE.take() {
         state.session.set_target(Target::Unknown);
+        if !stopped_normally {
+            (state.session.observe)(HookNotice::Stopped);
+        }
     }
     Ok(())
 }
 
-fn pump_messages(stop: HANDLE) {
+fn pump_messages(stop: HANDLE) -> bool {
     let mut message = MSG::default();
     // Wait without polling. PeekMessage also delivers callbacks sent to this thread.
-    while unsafe {
-        MsgWaitForMultipleObjectsEx(Some(&[stop]), INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE)
-    }
-    .0 == WAIT_OBJECT_0.0 + 1
-    {
+    loop {
+        let wait = unsafe {
+            MsgWaitForMultipleObjectsEx(Some(&[stop]), INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE)
+        };
+        if wait.0 != WAIT_OBJECT_0.0 + 1 {
+            return wait == WAIT_OBJECT_0;
+        }
         if unsafe { PeekMessageW(&mut message, None, 0, 0, PM_REMOVE) }.as_bool() {
             if message.message == WM_QUIT {
-                break;
+                return false;
             }
             unsafe {
                 DispatchMessageW(&message);

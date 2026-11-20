@@ -4,7 +4,7 @@ use crate::{
     capture::CaptureBuffer,
     dsp::{Converter, RmsMeter},
 };
-use crossbeam_channel::{Receiver, Sender, never, select_biased};
+use crossbeam_channel::{Receiver, Sender, TryRecvError, never, select_biased};
 use std::{
     sync::atomic::Ordering,
     time::{Duration, Instant},
@@ -129,13 +129,7 @@ impl<B: Backend> Worker<B> {
                 }
                 recv(notices) -> notice => {
                     match notice {
-                        Ok(AudioError::StreamGlitch) => {
-                            (self.on_event)(AudioEvent::InputDiscontinuity);
-                            self.close_input();
-                            let _ = self.connect();
-                        }
-                        Ok(AudioError::RealtimeDenied) => (self.on_event)(AudioEvent::RealtimeUnavailable),
-                        Ok(error) => self.recover(error),
+                        Ok(notice) => { self.handle_notice(notice); }
                         Err(_) => self.recover(AudioError::Backend("Der Mikrofonstream wurde beendet.".into())),
                     }
                 }
@@ -220,19 +214,59 @@ impl<B: Backend> Worker<B> {
         let _ = self.connect();
     }
 
+    // Returns true if the notice closed the stream.
+    fn handle_notice(&mut self, notice: AudioError) -> bool {
+        match notice {
+            AudioError::RealtimeDenied => {
+                (self.on_event)(AudioEvent::RealtimeUnavailable);
+                return false;
+            }
+            AudioError::StreamGlitch => {
+                (self.on_event)(AudioEvent::InputDiscontinuity);
+                self.close_input();
+                let _ = self.connect();
+            }
+            error => self.recover(error),
+        }
+        true
+    }
+
     fn drain_pending(&mut self) {
+        let Some(input) = &self.input else {
+            return;
+        };
+        let samples = input.samples.clone();
+        let pending_samples = samples.len();
+        let notices = input.notices.clone();
+        // A queued command may win the select before an earlier driver fault.
+        // Report that fault before acknowledging a recording boundary.
+        match input.errors.try_recv() {
+            Ok(error) => {
+                self.recover(error);
+                return;
+            }
+            Err(TryRecvError::Disconnected) => {
+                self.recover(AudioError::Backend(
+                    "Der Mikrofonstream wurde beendet.".into(),
+                ));
+                return;
+            }
+            Err(TryRecvError::Empty) => {}
+        }
+        // Finite snapshots keep commands responsive under continuous input.
+        for notice in notices.try_iter().take(notices.len()) {
+            if self.handle_notice(notice) {
+                return;
+            }
+        }
+        for packet in samples.try_iter().take(pending_samples) {
+            if self.overflowed() {
+                break;
+            }
+            self.process(packet);
+        }
         if self.overflowed() {
             self.recover_overflow();
-            return;
-        }
-        if let Some(input) = &self.input {
-            let receiver = input.samples.clone();
-            // A finite snapshot keeps commands responsive under continuous input.
-            for _ in 0..receiver.len() {
-                if let Ok(packet) = receiver.try_recv() {
-                    self.process(packet);
-                }
-            }
         }
     }
 

@@ -63,7 +63,7 @@ pub(crate) fn paste(target: &Target, text: &str) -> Result<(), InjectError> {
     temporary_text(
         &owner,
         text,
-        || target.check(),
+        || target.check_foreground(),
         || {
             owner.arm();
             let result = keyboard::paste_shortcut(target);

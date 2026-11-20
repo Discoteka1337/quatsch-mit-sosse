@@ -3283,7 +3283,11 @@ dependencies = [
 name = "quatsch-mit-sosse"
 version = "0.1.0"
 dependencies = [
+ "quatsch-mit-sosse-audio",
+ "quatsch-mit-sosse-hotkey",
  "quatsch-mit-sosse-inject",
+ "quatsch-mit-sosse-models",
+ "quatsch-mit-sosse-stt",
  "serde",
  "serde_json",
  "tauri",

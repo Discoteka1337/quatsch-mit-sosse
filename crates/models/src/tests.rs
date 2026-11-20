@@ -79,6 +79,57 @@ fn cached_download_installs_atomically_and_remove_clears_everything() {
     assert!(!manager.is_installed("fixture").unwrap());
 }
 
+#[cfg(windows)]
+#[test]
+fn cached_artifact_is_reserved_for_reading_until_extraction_finishes() {
+    let payload = b"synthetic model";
+    let (root, manager) = fixture(payload);
+    cache(root.path(), payload);
+    let mut checked = Vec::new();
+    manager
+        .install("fixture", &AtomicBool::new(false), |item| {
+            if matches!(
+                item.phase,
+                crate::ProgressPhase::Verifying | crate::ProgressPhase::Extracting
+            ) {
+                let other_writer = std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(root.path().join(".downloads/fixture/0.part"));
+                assert_eq!(other_writer.unwrap_err().raw_os_error(), Some(32));
+                checked.push(item.phase);
+            }
+        })
+        .unwrap();
+    assert_eq!(
+        checked,
+        [
+            crate::ProgressPhase::Verifying,
+            crate::ProgressPhase::Extracting
+        ]
+    );
+}
+
+#[test]
+fn retry_after_publication_cleans_remaining_downloads_without_reinstallation() {
+    let payload = b"synthetic model";
+    let (root, manager) = fixture(payload);
+    cache(root.path(), payload);
+    manager
+        .install("fixture", &AtomicBool::new(false), |_| {})
+        .unwrap();
+    // Simulate the state left by a process exit after publishing the model.
+    cache(root.path(), payload);
+    let mut phases = Vec::new();
+    manager
+        .install("fixture", &AtomicBool::new(false), |item| {
+            phases.push(item.phase)
+        })
+        .unwrap();
+    assert_eq!(phases, [crate::ProgressPhase::Complete]);
+    assert!(manager.is_installed("fixture").unwrap());
+    assert!(!root.path().join(".downloads/fixture").exists());
+}
+
 #[test]
 fn interrupted_install_keeps_download_and_resumes_without_network() {
     let payload = b"synthetic model";
@@ -220,6 +271,10 @@ fn concurrent_install_and_remove_are_rejected() {
     let lock = std::fs::File::create(lock_dir.join("fixture.lock")).unwrap();
     fs2::FileExt::lock_exclusive(&lock).unwrap();
     assert!(matches!(
+        manager.acquire("fixture"),
+        Err(crate::Error::Busy)
+    ));
+    assert!(matches!(
         manager.install("fixture", &AtomicBool::new(false), |_| {}),
         Err(crate::Error::Busy)
     ));
@@ -230,6 +285,29 @@ fn concurrent_install_and_remove_are_rejected() {
         .install("fixture", &AtomicBool::new(false), |_| {})
         .unwrap();
     assert!(manager.is_installed("fixture").unwrap());
+}
+
+#[test]
+fn readers_share_the_installed_model_and_exclude_changes_until_the_last_drop() {
+    let (root, manager) = fixture(b"model");
+    assert!(manager.acquire("fixture").unwrap().is_none());
+    cache(root.path(), b"model");
+    let installed = manager
+        .install("fixture", &AtomicBool::new(false), |_| {})
+        .unwrap();
+    let first = manager.acquire("fixture").unwrap().unwrap();
+    let second = manager.acquire("fixture").unwrap().unwrap();
+    assert_eq!(first.path(), installed);
+    assert!(matches!(
+        manager.install("fixture", &AtomicBool::new(false), |_| {}),
+        Err(crate::Error::Busy)
+    ));
+    drop(first);
+    assert!(matches!(manager.remove("fixture"), Err(crate::Error::Busy)));
+    assert!(second.path().join("model.onnx").is_file());
+    drop(second);
+    manager.remove("fixture").unwrap();
+    assert!(!manager.is_installed("fixture").unwrap());
 }
 
 #[test]

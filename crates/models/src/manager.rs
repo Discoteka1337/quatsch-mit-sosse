@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    io::{Read, Seek, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -34,6 +34,23 @@ pub struct Progress {
 pub struct Manager {
     root: PathBuf,
     pub(crate) manifest: Manifest,
+}
+
+/// Keeps a complete model installation available while its files are opened.
+pub struct ModelLease {
+    directory: PathBuf,
+    _lock: File,
+}
+
+impl ModelLease {
+    pub fn path(&self) -> &Path {
+        &self.directory
+    }
+}
+
+enum LockMode {
+    Shared,
+    Exclusive,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -106,6 +123,18 @@ impl Manager {
         Ok(self.is_installed(id)?.then(|| self.root.join(id)))
     }
 
+    pub fn acquire(&self, id: &str) -> Result<Option<ModelLease>> {
+        self.model(id)?;
+        if !self.root.try_exists()? {
+            return Ok(None);
+        }
+        let lock = self.lock(id, LockMode::Shared)?;
+        Ok(self.path_of(id)?.map(|directory| ModelLease {
+            directory,
+            _lock: lock,
+        }))
+    }
+
     pub fn install(
         &self,
         id: &str,
@@ -113,8 +142,9 @@ impl Manager {
         mut progress: impl FnMut(Progress),
     ) -> Result<PathBuf> {
         let model = self.model(id)?;
-        let _lock = self.lock(id)?;
+        let _lock = self.lock(id, LockMode::Exclusive)?;
         let destination = self.root.join(id);
+        let downloads = self.root.join(".downloads").join(id);
         let total = model.download_size();
         let mut report = |downloaded_bytes, phase| {
             progress(Progress {
@@ -125,11 +155,12 @@ impl Manager {
             })
         };
         if self.is_installed(id)? {
+            // A previous process may have exited between publication and cache cleanup.
+            self.clear_directory(&downloads)?;
             report(total, ProgressPhase::Complete);
             return Ok(destination);
         }
         check_cancelled(cancel)?;
-        let downloads = self.root.join(".downloads").join(id);
         let staging = self.root.join(".staging").join(id);
         self.check_path(&downloads)?;
         self.check_path(&staging)?;
@@ -156,14 +187,16 @@ impl Manager {
                     cancel,
                     &mut |bytes| report(completed_bytes + bytes, ProgressPhase::Downloading),
                 )?;
+                let mut input = open_artifact(&cached)?;
                 report(completed_bytes + artifact.size, ProgressPhase::Verifying);
-                if file_sha256(&cached, cancel)? != artifact.sha256 {
+                if file_sha256(&mut input, cancel)? != artifact.sha256 {
                     return Err(Error::ChecksumMismatch);
                 }
+                input.rewind()?;
                 check_cancelled(cancel)?;
                 fs::create_dir_all(&staging)?;
                 report(completed_bytes + artifact.size, ProgressPhase::Extracting);
-                extract(artifact, &cached, &staging, cancel)?;
+                extract(artifact, input, &staging, cancel)?;
                 completed_bytes += artifact.size;
             }
             check_cancelled(cancel)?;
@@ -197,7 +230,7 @@ impl Manager {
 
     pub fn remove(&self, id: &str) -> Result<()> {
         self.model(id)?;
-        let _lock = self.lock(id)?;
+        let _lock = self.lock(id, LockMode::Exclusive)?;
         for path in [
             self.root.join(id),
             self.root.join(".downloads").join(id),
@@ -213,10 +246,10 @@ impl Manager {
             .models
             .iter()
             .find(|model| model.id == id)
-            .ok_or_else(|| Error::UnknownModel(id.to_owned()))
+            .ok_or(Error::UnknownModel)
     }
 
-    fn lock(&self, id: &str) -> Result<File> {
+    fn lock(&self, id: &str, mode: LockMode) -> Result<File> {
         let locks = self.root.join(".locks");
         self.check_path(&locks)?;
         fs::create_dir_all(&locks)?;
@@ -228,7 +261,11 @@ impl Manager {
             .read(true)
             .write(true)
             .open(path)?;
-        fs2::FileExt::try_lock_exclusive(&file).map_err(|error| {
+        let result = match mode {
+            LockMode::Shared => fs2::FileExt::try_lock_shared(&file),
+            LockMode::Exclusive => fs2::FileExt::try_lock_exclusive(&file),
+        };
+        result.map_err(|error| {
             if error.kind() == std::io::ErrorKind::WouldBlock || error.raw_os_error() == Some(33) {
                 Error::Busy
             } else {
@@ -307,8 +344,19 @@ fn check_cancelled(cancel: &AtomicBool) -> Result<()> {
     }
 }
 
-fn file_sha256(path: &Path, cancel: &AtomicBool) -> Result<String> {
-    let mut file = File::open(path)?;
+fn open_artifact(path: &Path) -> Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_SHARE_READ: u32 = 1;
+        options.share_mode(FILE_SHARE_READ);
+    }
+    Ok(options.open(path)?)
+}
+
+fn file_sha256(file: &mut File, cancel: &AtomicBool) -> Result<String> {
     let mut hash = Sha256::new();
     let mut buffer = [0; 64 * 1024];
     loop {
@@ -360,17 +408,12 @@ fn copy_checked(
     Ok(())
 }
 
-fn extract(artifact: &Artifact, cached: &Path, staging: &Path, cancel: &AtomicBool) -> Result<()> {
+fn extract(artifact: &Artifact, input: File, staging: &Path, cancel: &AtomicBool) -> Result<()> {
     if artifact.archive == ArchiveFormat::None {
         let file = &artifact.files[0];
-        return copy_checked(
-            File::open(cached)?,
-            &staging.join(&file.path),
-            file.size,
-            cancel,
-        );
+        return copy_checked(input, &staging.join(&file.path), file.size, cancel);
     }
-    let decoder = BzDecoder::new(File::open(cached)?);
+    let decoder = BzDecoder::new(input);
     let mut archive = tar::Archive::new(decoder);
     let mut found = std::collections::HashSet::new();
     let invalid =

@@ -8,11 +8,15 @@ use tauri::{
 };
 
 mod benchmark;
+mod dictation;
+mod input;
+mod model_window;
 mod native_ui;
 mod overlay;
 mod overlay_placement;
 mod overlay_window;
 mod settings_gate;
+mod speech;
 
 pub use overlay::{OverlayState, set_overlay_state};
 
@@ -20,7 +24,19 @@ pub use overlay::{OverlayState, set_overlay_state};
 #[serde(rename_all = "camelCase")]
 struct Messages {
     app_name: String,
+    audio_overflow: String,
+    audio_empty: String,
+    recognizer_model_missing: String,
+    recognizer_fallback_notice: String,
+    recognizer_fallback_failed: String,
     settings: String,
+    reinsert: String,
+    no_last_text: String,
+    target_unavailable: String,
+    no_speech: String,
+    shortcut_error: String,
+    worker_error: String,
+    overlay_unavailable: String,
     quit: String,
     settings_open_error: String,
     startup_error: String,
@@ -162,8 +178,9 @@ pub fn run() -> tauri::Result<()> {
             app.manage(overlay::Controller::open()?);
             let text = messages();
             let settings = MenuItem::with_id(app, "settings", &text.settings, true, None::<&str>)?;
+            let reinsert = MenuItem::with_id(app, "reinsert", &text.reinsert, true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", &text.quit, true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&settings, &quit])?;
+            let menu = Menu::with_items(app, &[&reinsert, &settings, &quit])?;
             TrayIconBuilder::with_id("main")
                 .icon(
                     app.default_window_icon()
@@ -175,16 +192,35 @@ pub fn run() -> tauri::Result<()> {
                 .show_menu_on_left_click(true)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "settings" => request_settings(app),
-                    "quit" => app.exit(0),
+                    "reinsert" => {
+                        if let Some(shortcuts) = app.try_state::<input::Shortcuts>() {
+                            shortcuts.reinsert_from_tray();
+                        } else {
+                            dictation::report_error(app, messages().shortcut_error.clone());
+                        }
+                    }
+                    "quit" => app.state::<dictation::Controller>().quit(app, 0),
                     _ => {}
                 })
                 .build(app)?;
             for label in ["settings", "overlay"] {
                 create_app_window(app.handle(), label)?;
             }
+            let controller = dictation::Controller::start(app.handle())?;
+            let dispatch = controller.input_handler();
+            app.manage(controller);
+            match input::Shortcuts::start(dispatch) {
+                Ok(shortcuts) => {
+                    app.manage(shortcuts);
+                }
+                Err(error) if is_benchmark => return Err(error.into()),
+                Err(_) => dictation::report_error(app.handle(), messages().shortcut_error.clone()),
+            }
             if let Some(config) = benchmark {
                 let handle = app.handle().clone();
-                benchmark::start_stop_listener(config.stop_event, move |code| handle.exit(code))?;
+                benchmark::start_stop_listener(config.stop_event, move |code| {
+                    handle.state::<dictation::Controller>().quit(&handle, code)
+                })?;
             }
             Ok(())
         })
@@ -192,7 +228,6 @@ pub fn run() -> tauri::Result<()> {
 
     // Keep the tray process alive while allowing windows and webviews to be destroyed.
     app.run(move |app, event| {
-        // Phase 0 has no hotkey implementation yet; see the benchmark decision record.
         if matches!(event, RunEvent::Ready) {
             let pending = app
                 .state::<Mutex<settings_gate::SettingsGate>>()
@@ -202,8 +237,11 @@ pub fn run() -> tauri::Result<()> {
             if pending {
                 request_settings(app);
             }
-            if ready_signal.emit().is_err() && is_benchmark {
-                app.exit(1);
+            if app.try_state::<input::Shortcuts>().is_some()
+                && ready_signal.emit().is_err()
+                && is_benchmark
+            {
+                app.state::<dictation::Controller>().quit(app, 1);
             }
         }
         if let RunEvent::ExitRequested {

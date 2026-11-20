@@ -2,7 +2,7 @@ mod manager;
 mod manifest;
 mod net;
 
-pub use manager::{Manager, Progress, ProgressPhase};
+pub use manager::{Manager, ModelLease, Progress, ProgressPhase};
 pub use manifest::{ArchiveFormat, Artifact, Manifest, Model, ModelFile, ModelKind};
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -13,8 +13,8 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("Ungültiges Modellmanifest: {0}")]
     Manifest(String),
-    #[error("Unbekanntes Modell: {0}")]
-    UnknownModel(String),
+    #[error("Unbekanntes Modell. Verfügbare Kennungen zeigt models-cli list.")]
+    UnknownModel,
     #[error("Installation abgebrochen; der Download kann fortgesetzt werden.")]
     Cancelled,
     #[error("Modelldownload fehlgeschlagen: {0}")]

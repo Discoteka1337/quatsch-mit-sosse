@@ -95,10 +95,10 @@ impl OwnerWindow {
         }
         .map_err(|_| InjectError::Unavailable)?;
         let mut pid = 0;
-        unsafe { GetWindowThreadProcessId(target.hwnd, Some(&mut pid)) };
+        unsafe { GetWindowThreadProcessId(target.hwnd(), Some(&mut pid)) };
         RENDER.with(|state| {
             state.owner.set(hwnd);
-            state.target.set(target.hwnd);
+            state.target.set(target.hwnd());
             state.pid.set(pid);
             state.rendered.set(false);
         });
@@ -125,7 +125,9 @@ impl OwnerWindow {
             if !self.owns_contents() {
                 return Err(InjectError::ClipboardChanged);
             }
-            target.check().map_err(|_| InjectError::DeliveryUncertain)?;
+            target
+                .check_foreground()
+                .map_err(|_| InjectError::DeliveryUncertain)?;
             Ok(RENDER.with(|state| state.rendered.get()))
         })
     }

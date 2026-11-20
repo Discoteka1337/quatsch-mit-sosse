@@ -129,6 +129,7 @@ public static class IdleFixture {
     $env:QMS_IDLE_FIXTURE_MODE = 'normal'
     $report = Invoke-QmsIdleMeasurement -ExecutablePath "$fixtureExe" -WarmupSeconds 0.15 -DurationSeconds 0.3 -SampleIntervalSeconds 0.1 -ReadyTimeoutSeconds 5
     Assert-Condition ($report.MeasurementSeconds -ge 0.3) 'Das Messfenster darf nicht verkürzt werden.'
+    Assert-Condition ($report.Conditions.HotkeyReadiness -eq 'registered' -and $report.Conditions.ReadyScope -eq 'tray_hotkeys_and_event_loop') 'Die Bereitschaftsmessung muss die registrierten Diktatkürzel einschließen.'
     Assert-Condition ($report.Summary.ProcessCount.Max -eq 2) 'Ein echter Kindprozess muss mitgemessen werden.'
     Assert-Condition ($report.Shutdown.Clean -and $report.Shutdown.ExitCode -eq 0) 'App und Kindprozess müssen regulär enden.'
     $jsonPath = Join-Path -Path "$fixtureRoot\Pfad mit Leerzeichen ß" -ChildPath 'idle.json'

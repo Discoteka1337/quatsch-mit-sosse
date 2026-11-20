@@ -71,6 +71,8 @@ pub enum Error {
     ModelNotInstalled,
     #[error("Die lokale Modellinstallation konnte nicht geprüft werden.")]
     ModelAccess,
+    #[error("Die Modellinstallation wird gerade geändert. Bitte die Erkennung erneut versuchen.")]
+    ModelBusy,
     #[error("Der Modellpfad kann nicht an die Erkennung übergeben werden.")]
     InvalidPath,
     #[error("Die lokale Spracherkennung konnte nicht geladen oder ausgeführt werden.")]

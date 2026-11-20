@@ -270,12 +270,12 @@ function Invoke-QmsIdleMeasurement {
             MeasuredAt = [DateTimeOffset]::Now.ToString('o')
             Build = [pscustomobject]@{ Profile = 'release'; Sha256 = (Get-FileHash -LiteralPath "$exe" -Algorithm SHA256).Hash.ToLowerInvariant() }
             Conditions = [pscustomobject]@{
-                ModelLoaded = $false; MainWindowOpen = $false; HotkeyReadiness = 'not_implemented_step_2.1'
-                ReadyScope = 'tray_and_event_loop'; MemoryUnit = 'bytes'; DisplayMegabyteBytes = 1000000
+                ModelLoaded = $false; MainWindowOpen = $false; HotkeyReadiness = 'registered'
+                ReadyScope = 'tray_hotkeys_and_event_loop'; MemoryUnit = 'bytes'; DisplayMegabyteBytes = 1000000
                 CpuNormalization = 'total_cpu_seconds / wall_seconds / logical_processors * 100'
                 MemoryMean = 'time_weighted_trapezoidal'; MemoryTargetBasis = 'maximum_of_simultaneous_process_sums'
                 ProcessDiscovery = 'recursive_parent_pid_and_creation_time_with_retained_processes'
-                Limitations = @('Polling kann vollständig zwischen Abfragen lebende Prozesse und Nachkommen nie erfasster Eltern übersehen.', 'Working Sets können gemeinsam genutzte Seiten mehrfach zählen.', 'QMS_READY bestätigt in Schritt 0.3 noch keinen implementierten Hotkey.')
+                Limitations = @('Polling kann vollständig zwischen Abfragen lebende Prozesse und Nachkommen nie erfasster Eltern übersehen.', 'Working Sets können gemeinsam genutzte Seiten mehrfach zählen.', 'QMS_READY bestätigt die registrierten Hotkeys. Mikrofontreiber und Modelle werden getrennt davon bereitgestellt.')
             }
             CpuCountersComplete = $cpuComplete
             LogicalProcessors = $logicalProcessors
@@ -348,7 +348,7 @@ if ($MyInvocation.InvocationName -ne '.') {
         ) | Format-Table -AutoSize | Out-Host
         Write-Host "JSON gespeichert: $reportPath"
         if (-not $report.CpuCountersComplete) { Write-Warning 'CPU-Zähler unvollständig: CPU-Werte sind Untergrenzen; der CPU-Zielvergleich bleibt unbekannt.' }
-        Write-Host 'Gerüst-Benchmark: Hotkey noch nicht implementiert (Schritt 2.1). App und erfasste Kindprozesse wurden sauber beendet.'
+        Write-Host 'Tray und Diktatkürzel waren bereit. App und erfasste Kindprozesse wurden sauber beendet.'
     } finally {
         foreach ($name in @([Environment]::GetEnvironmentVariables('Process').Keys)) {
             if (-not $previousEnvironment.Contains($name)) { [Environment]::SetEnvironmentVariable($name, $null, 'Process') }

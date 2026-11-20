@@ -1,6 +1,6 @@
 use std::{path::Path, time::Instant};
 
-use quatsch_mit_sosse_models::{Manager, Model};
+use quatsch_mit_sosse_models::{Manager, Model, ModelLease};
 use quatsch_mit_sosse_vad::{SAMPLE_RATE, SileroVad, VadConfig};
 use sherpa_rs::{
     transducer::{TransducerConfig, TransducerRecognizer},
@@ -109,13 +109,11 @@ impl Engine {
         }
         let text = self.session.with(
             || {
-                let vad_root = self
-                    .manager
-                    .path_of("silero-vad")
-                    .map_err(|_| Error::ModelAccess)?
-                    .ok_or(Error::ModelNotInstalled)?;
-                let vad = SileroVad::new(vad_root.join("silero_vad.onnx"), VadConfig::default())
-                    .map_err(|_| Error::Vad)?;
+                let lease = self.acquire("silero-vad")?;
+                let mut vad =
+                    SileroVad::new(lease.path().join("silero_vad.onnx"), VadConfig::default())
+                        .map_err(|_| Error::Vad)?;
+                vad.load().map_err(|_| Error::Vad)?;
                 Ok(Session {
                     vad,
                     recognizer: None,
@@ -150,29 +148,36 @@ impl Engine {
         })
     }
 
+    fn acquire(&self, id: &str) -> Result<ModelLease> {
+        self.manager
+            .acquire(id)
+            .map_err(|error| match error {
+                quatsch_mit_sosse_models::Error::Busy => Error::ModelBusy,
+                _ => Error::ModelAccess,
+            })?
+            .ok_or(Error::ModelNotInstalled)
+    }
+
     fn load_recognizer(&self, language: &str) -> Result<Recognizer> {
-        let root = self
-            .manager
-            .path_of(&self.model.id)
-            .map_err(|_| Error::ModelAccess)?
-            .ok_or(Error::ModelNotInstalled)?;
+        let lease = self.acquire(&self.model.id)?;
+        let root = lease.path();
 
         let threads = self.config.num_threads as i32;
         let inline_encoder = if self.model.id == "parakeet-primeline-de-int8" {
-            Some(crate::onnx::prepare_encoder(&root)?)
+            Some(crate::onnx::prepare_encoder(root)?)
         } else {
             None
         };
         let encoder = match &inline_encoder {
             Some(file) => file.to_str().ok_or(Error::InvalidPath)?.to_owned(),
-            None => model_path(&root, "encoder.int8.onnx")?,
+            None => model_path(root, "encoder.int8.onnx")?,
         };
         match self.kind {
             Kind::Transducer => TransducerRecognizer::new(TransducerConfig {
                 encoder,
-                decoder: model_path(&root, "decoder.int8.onnx")?,
-                joiner: model_path(&root, "joiner.int8.onnx")?,
-                tokens: model_path(&root, "tokens.txt")?,
+                decoder: model_path(root, "decoder.int8.onnx")?,
+                joiner: model_path(root, "joiner.int8.onnx")?,
+                tokens: model_path(root, "tokens.txt")?,
                 model_type: "nemo_transducer".into(),
                 decoding_method: "greedy_search".into(),
                 sample_rate: 16_000,
@@ -185,9 +190,9 @@ impl Engine {
             .map(|r| Recognizer::Transducer(Box::new(r)))
             .map_err(|_| Error::Recognition),
             Kind::Whisper => WhisperRecognizer::new(WhisperConfig {
-                encoder: model_path(&root, "turbo-encoder.int8.onnx")?,
-                decoder: model_path(&root, "turbo-decoder.int8.onnx")?,
-                tokens: model_path(&root, "turbo-tokens.txt")?,
+                encoder: model_path(root, "turbo-encoder.int8.onnx")?,
+                decoder: model_path(root, "turbo-decoder.int8.onnx")?,
+                tokens: model_path(root, "turbo-tokens.txt")?,
                 language: language.into(),
                 num_threads: Some(threads),
                 provider: Some("cpu".into()),
@@ -283,5 +288,38 @@ pub fn create_engine(
         Kind::Whisper => Ok(Box::new(WhisperEngine::with_manager(
             manager, model_id, config,
         )?)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn a_concurrent_install_or_removal_blocks_both_native_loaders() {
+        let directory = tempfile::tempdir().unwrap();
+        let manager = Manager::with_root(directory.path().into()).unwrap();
+        let model = "parakeet-v3-int8";
+        let engine =
+            Engine::new(manager, model, Kind::Transducer, EngineConfig::default()).unwrap();
+        let locks = directory.path().join(".locks");
+        fs::create_dir(&locks).unwrap();
+        for id in ["silero-vad", model] {
+            let lock = fs::File::create(locks.join(format!("{id}.lock"))).unwrap();
+            lock.try_lock().unwrap();
+            let try_load = || {
+                if id == model {
+                    engine.load_recognizer("de").map(drop)
+                } else {
+                    engine
+                        .transcribe(&[0.0; 512], SAMPLE_RATE, Some("de"))
+                        .map(drop)
+                }
+            };
+            assert!(matches!(try_load(), Err(Error::ModelBusy)));
+            drop(lock);
+            assert!(matches!(try_load(), Err(Error::ModelNotInstalled)));
+        }
     }
 }

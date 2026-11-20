@@ -1,0 +1,252 @@
+{
+    "SchemaVersion":  1,
+    "MeasuredAt":  "2026-11-20T23:02:22.1655774+01:00",
+    "Build":  {
+                  "Profile":  "release",
+                  "Sha256":  "9c2193a82d9423b62b61f0e5eead966735970833b2bd205e1ff28bc51945ce84"
+              },
+    "Conditions":  {
+                       "ModelLoaded":  false,
+                       "MainWindowOpen":  false,
+                       "HotkeyReadiness":  "registered",
+                       "ReadyScope":  "tray_hotkeys_and_event_loop",
+                       "MemoryUnit":  "bytes",
+                       "DisplayMegabyteBytes":  1000000,
+                       "CpuNormalization":  "total_cpu_seconds / wall_seconds / logical_processors * 100",
+                       "MemoryMean":  "time_weighted_trapezoidal",
+                       "MemoryTargetBasis":  "maximum_of_simultaneous_process_sums",
+                       "ProcessDiscovery":  "recursive_parent_pid_and_creation_time_with_retained_processes",
+                       "Limitations":  [
+                                           "Polling kann vollständig zwischen Abfragen lebende Prozesse und Nachkommen nie erfasster Eltern übersehen.",
+                                           "Working Sets können gemeinsam genutzte Seiten mehrfach zählen.",
+                                           "QMS_READY bestätigt die registrierten Hotkeys. Mikrofontreiber und Modelle werden getrennt davon bereitgestellt."
+                                       ],
+                       "MicrophoneActivation":  "dictation_hotkey"
+                   },
+    "CpuCountersComplete":  true,
+    "LogicalProcessors":  16,
+    "WarmupSeconds":  60,
+    "RequestedMeasurementSeconds":  30,
+    "MeasurementSeconds":  30.342520999999998,
+    "SampleIntervalSeconds":  1,
+    "ReadyPollMilliseconds":  5,
+    "StartupSeconds":  0.20128089999999998,
+    "Summary":  {
+                    "PrivateBytes":  {
+                                         "Mean":  4003284.9924043682,
+                                         "Max":  4026368
+                                     },
+                    "WorkingSetBytes":  {
+                                            "Mean":  22777673.414499044,
+                                            "Max":  22790144
+                                        },
+                    "CpuPercent":  {
+                                       "Mean":  0.0032184619728861689,
+                                       "Max":  0.071448121594359648
+                                   },
+                    "ProcessCount":  {
+                                         "Max":  1
+                                     },
+                    "Targets":  {
+                                    "MemoryLimitBytes":  100000000,
+                                    "CpuLimitPercent":  1,
+                                    "StartupLimitSeconds":  2,
+                                    "PrivateBytesPassed":  true,
+                                    "WorkingSetPassed":  true,
+                                    "CpuPassed":  true,
+                                    "StartupPassed":  true
+                                }
+                },
+    "Processes":  [
+                      {
+                          "Id":  37764,
+                          "ParentId":  28532,
+                          "Name":  "quatsch-mit-sosse.exe",
+                          "FinalCpuUnavailable":  false,
+                          "LateBaseline":  false
+                      }
+                  ],
+    "Samples":  [
+                    {
+                        "ElapsedSeconds":  0,
+                        "CpuSeconds":  0.0625,
+                        "PrivateBytes":  4026368,
+                        "WorkingSetBytes":  22773760,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    },
+                    {
+                        "ElapsedSeconds":  1.5035767000000035,
+                        "CpuSeconds":  0.0625,
+                        "PrivateBytes":  4026368,
+                        "WorkingSetBytes":  22773760,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    },
+                    {
+                        "ElapsedSeconds":  3.3339656000000062,
+                        "CpuSeconds":  0.0625,
+                        "PrivateBytes":  4026368,
+                        "WorkingSetBytes":  22777856,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    },
+                    {
+                        "ElapsedSeconds":  5.0773593000000048,
+                        "CpuSeconds":  0.0625,
+                        "PrivateBytes":  4026368,
+                        "WorkingSetBytes":  22777856,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    },
+                    {
+                        "ElapsedSeconds":  6.7518901000000042,
+                        "CpuSeconds":  0.0625,
+                        "PrivateBytes":  3997696,
+                        "WorkingSetBytes":  22765568,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    },
+                    {
+                        "ElapsedSeconds":  8.3358748000000062,
+                        "CpuSeconds":  0.0625,
+                        "PrivateBytes":  3997696,
+                        "WorkingSetBytes":  22765568,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    },
+                    {
+                        "ElapsedSeconds":  10.024160599999995,
+                        "CpuSeconds":  0.0625,
+                        "PrivateBytes":  3997696,
+                        "WorkingSetBytes":  22765568,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    },
+                    {
+                        "ElapsedSeconds":  11.529035099999994,
+                        "CpuSeconds":  0.0625,
+                        "PrivateBytes":  3997696,
+                        "WorkingSetBytes":  22765568,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    },
+                    {
+                        "ElapsedSeconds":  13.1065587,
+                        "CpuSeconds":  0.0625,
+                        "PrivateBytes":  3997696,
+                        "WorkingSetBytes":  22765568,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    },
+                    {
+                        "ElapsedSeconds":  14.528146499999998,
+                        "CpuSeconds":  0.0625,
+                        "PrivateBytes":  3997696,
+                        "WorkingSetBytes":  22765568,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    },
+                    {
+                        "ElapsedSeconds":  15.915670999999996,
+                        "CpuSeconds":  0.0625,
+                        "PrivateBytes":  3997696,
+                        "WorkingSetBytes":  22765568,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    },
+                    {
+                        "ElapsedSeconds":  17.266561900000006,
+                        "CpuSeconds":  0.0625,
+                        "PrivateBytes":  3997696,
+                        "WorkingSetBytes":  22765568,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    },
+                    {
+                        "ElapsedSeconds":  18.635181600000003,
+                        "CpuSeconds":  0.0625,
+                        "PrivateBytes":  3997696,
+                        "WorkingSetBytes":  22790144,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    },
+                    {
+                        "ElapsedSeconds":  20.001995,
+                        "CpuSeconds":  0.078125,
+                        "PrivateBytes":  3997696,
+                        "WorkingSetBytes":  22790144,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    },
+                    {
+                        "ElapsedSeconds":  21.339057700000005,
+                        "CpuSeconds":  0.078125,
+                        "PrivateBytes":  3997696,
+                        "WorkingSetBytes":  22790144,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    },
+                    {
+                        "ElapsedSeconds":  22.726922800000004,
+                        "CpuSeconds":  0.078125,
+                        "PrivateBytes":  3997696,
+                        "WorkingSetBytes":  22790144,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    },
+                    {
+                        "ElapsedSeconds":  24.062981799999996,
+                        "CpuSeconds":  0.078125,
+                        "PrivateBytes":  3997696,
+                        "WorkingSetBytes":  22790144,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    },
+                    {
+                        "ElapsedSeconds":  25.445065899999996,
+                        "CpuSeconds":  0.078125,
+                        "PrivateBytes":  3997696,
+                        "WorkingSetBytes":  22790144,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    },
+                    {
+                        "ElapsedSeconds":  26.812423599999995,
+                        "CpuSeconds":  0.078125,
+                        "PrivateBytes":  3997696,
+                        "WorkingSetBytes":  22790144,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    },
+                    {
+                        "ElapsedSeconds":  28.160749900000006,
+                        "CpuSeconds":  0.078125,
+                        "PrivateBytes":  3997696,
+                        "WorkingSetBytes":  22790144,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    },
+                    {
+                        "ElapsedSeconds":  29.493983699999994,
+                        "CpuSeconds":  0.078125,
+                        "PrivateBytes":  3997696,
+                        "WorkingSetBytes":  22790144,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    },
+                    {
+                        "ElapsedSeconds":  30.342520999999998,
+                        "CpuSeconds":  0.078125,
+                        "PrivateBytes":  3997696,
+                        "WorkingSetBytes":  22790144,
+                        "ProcessCount":  1,
+                        "ProcessCountersComplete":  true
+                    }
+                ],
+    "Shutdown":  {
+                     "Clean":  true,
+                     "ExitCode":  0,
+                     "Method":  "Windows event -\u003e AppHandle.exit(0)"
+                 }
+}
