@@ -2,7 +2,7 @@
 
 Deutsche, offline-first Diktier-App für Windows 11. Geplant sind lokale Spracherkennung und Textbereinigung sowie optionale, ausdrücklich aktivierte KI-Anbieter. Die Desktop-App verwendet Tauri 2, Rust und native Windows-Steuerelemente. Das Svelte-/TypeScript-Gerüst bleibt separat erhalten.
 
-**Status: Schritt 1.4 – Korpus-Recorder und Satzliste.** Der Recorder führt durch 40 deutsche Diktate und zehn Aufnahmen ohne Sprache. WASAPI-Aufnahmen mit 16 kHz mono können lokal mit beiden Parakeet-Modellen oder Whisper erkannt werden. Silero erkennt Sprachabschnitte; lange Aufnahmen werden an Pausen in höchstens 20 Sekunden lange Stücke geteilt. Modelle laden erst bei Bedarf und werden nach standardmäßig fünf Minuten Leerlauf automatisch entladen. Aufnahme, Modellverwaltung und Erkennung sind über Kommandozeilenprogramme nutzbar; die Verbindung mit Tray und Hotkey folgt in späteren Schritten.
+**Status: Schritt 1.5 – Benchmark und Modellentscheidung.** `tools/bench` vergleicht installierte ASR-Modelle anhand des privaten Korpus und erstellt einen Bericht ohne Satztexte. Der Recorder führt durch 40 deutsche Diktate und zehn Aufnahmen ohne Sprache. WASAPI-Aufnahmen mit 16 kHz mono können lokal mit beiden Parakeet-Modellen oder Whisper erkannt werden. Silero erkennt Sprachabschnitte; lange Aufnahmen werden an Pausen in höchstens 20 Sekunden lange Stücke geteilt. Modelle laden erst bei Bedarf und werden nach standardmäßig fünf Minuten Leerlauf automatisch entladen. Aufnahme, Modellverwaltung und Erkennung sind über Kommandozeilenprogramme nutzbar; die Verbindung mit Tray und Hotkey folgt in späteren Schritten.
 
 **WebView2-Diagnostikpfad entfernt.** Einstellungen und Overlay sind native Fenster; die App startet weder WebView2 noch dessen SDK-Versionsabfrage. Dafür wird eine eng begrenzte, geprüfte Tauri-Abhängigkeitskorrektur verwendet. Entscheidung, Tests und Wartung stehen in [Entscheidung 0006](docs/decisions/0006-native-fenster-ohne-webview2.md). Systemweite Windows-Diagnostik wird dadurch nicht verändert.
 
@@ -101,7 +101,7 @@ Während einer blockierten Netzwerkoperation kann ein Abbruch bis zu 30 Sekunden
 
 Downloadadressen, exakte Dateigrößen, SHA256-Werte, enthaltene Laufzeitdateien, Lizenzen und Namensnennungen stehen in [manifest.toml](crates/models/manifest.toml). Auch Weiterleitungen werden gegen die exakte Hostliste geprüft; neue CDN-Hosts benötigen eine geprüfte Manifeständerung. Herkunft und Hash-Nachweis beschreibt [Entscheidung 0008](docs/decisions/0008-modellquellen-und-installation.md); die Namensnennungen stehen zusätzlich in [NOTICE](NOTICE).
 
-Manuell prüfen: ein gewünschtes Modell installieren, während des Downloads Strg+C drücken und denselben Befehl erneut starten. Danach muss `list` den Zustand „installiert“ anzeigen. Der systematische Qualitätsvergleich der Modelle ist erst ab Schritt 1.5 vorgesehen.
+Manuell prüfen: ein gewünschtes Modell installieren, während des Downloads Strg+C drücken und denselben Befehl erneut starten. Danach muss `list` den Zustand „installiert“ anzeigen. Den systematischen Qualitätsvergleich beschreibt der Abschnitt „ASR-Benchmark“.
 
 ## Spracherkennung prüfen
 
@@ -118,7 +118,7 @@ cargo run --package quatsch-mit-sosse-stt --example transcribe_file -- "testdata
 
 Das Beispiel akzeptiert WAV mit **16 kHz mono**, als Float32 oder PCM16/24/32. Es schreibt das Ergebnis als UTF-8 nach `testdata/private/transcribe_file.txt` im Projektordner; eine vorhandene Ergebnisdatei wird ersetzt. Transkript und Audio erscheinen nie im Terminal oder in Logs. Im Terminal stehen nur Status und Verarbeitungsdauer einschließlich Laden und VAD. Die Ergebnisdatei bleibt wie die Aufnahme von Git ausgeschlossen.
 
-Danach denselben Befehl mit `parakeet-primeline-de-int8` beziehungsweise optional `whisper-large-v3-turbo` starten und jeweils die Ergebnisdatei lesen. Manuell prüfen: Der gesprochene deutsche Text stimmt erkennbar, insbesondere der erste Laut und längere Sätze über die Stückgrenzen. Ein Qualitätsbenchmark ist noch nicht vorgesehen.
+Danach denselben Befehl mit `parakeet-primeline-de-int8` beziehungsweise optional `whisper-large-v3-turbo` starten und jeweils die Ergebnisdatei lesen. Manuell prüfen: Der gesprochene deutsche Text stimmt erkennbar, insbesondere der erste Laut und längere Sätze über die Stückgrenzen. Der Qualitätsvergleich läuft über `tools/bench`.
 
 Die Bibliothek bietet `SpeechEngine::transcribe`, `Transcript { text, processing_duration }`, `TransducerEngine`, `WhisperEngine` und `create_engine`. `EngineConfig` stellt ASR-Threads (Standard 2) und `idle_timeout` (Standard 300 Sekunden) ein; `Duration::ZERO` entlädt nach jedem Aufruf. `with_manager` erlaubt einen eigenen Modellordner. Ein schlafender Helfer entlädt VAD und ASR ohne weiteren Aufruf; laufende Erkennung wird nicht unterbrochen. Stille lädt nur VAD, kein ASR-Modell. Die synchronen Aufrufe gehören später in einen Arbeits-Thread.
 
@@ -180,7 +180,49 @@ cargo run --package corpus-recorder -- --device "Exakter Mikrofonname"
 cargo run --package corpus-recorder -- --help
 ```
 
-Manuell prüfen: Alle 50 Aufnahmen einsprechen beziehungsweise aufnehmen, einige WAV-Dateien anhören und besonders auf vollständige Wortanfänge achten. W, S und einen Sitzungsneustart ausprobieren. Wenn die gesprochene Formulierung abweicht, die zugehörige TXT-Datei anpassen. Bei 041–050 müssen die Referenzdateien leer bleiben und die WAV-Dateien dürfen keine Sprache enthalten. Anschließend prüfen, dass Windows das Mikrofon als freigegeben anzeigt. Der Qualitätsbenchmark aus Schritt 1.5 ist noch nicht vorgesehen.
+Manuell prüfen: Alle 50 Aufnahmen einsprechen beziehungsweise aufnehmen, einige WAV-Dateien anhören und besonders auf vollständige Wortanfänge achten. W, S und einen Sitzungsneustart ausprobieren. Wenn die gesprochene Formulierung abweicht, die zugehörige TXT-Datei anpassen. Bei 041–050 müssen die Referenzdateien leer bleiben und die WAV-Dateien dürfen keine Sprache enthalten. Anschließend prüfen, dass Windows das Mikrofon als freigegeben anzeigt.
+
+## ASR-Benchmark
+
+`tools/bench` liest sämtliche nummerierten WAV/TXT-Paare aus dem privaten Korpus
+und misst jedes vollständig installierte ASR-Modell über die vorhandene
+`SpeechEngine` einschließlich Silero-VAD. Es lädt keine Modelle herunter.
+Andere rechenintensive Programme und Builds während der Messung pausieren.
+
+```powershell
+Set-Location -LiteralPath "H:\Quatsch mit Soße"
+$env:CARGO_TARGET_DIR = "C:\qms-target"
+. "./scripts/import-msvc.ps1"
+Import-MsvcEnvironment
+cargo run --offline --release --package bench -- --date "2026-11-20"
+```
+
+Ohne `--date` wird das lokale Tagesdatum verwendet. Optional sind `--threads N`
+(Standard: 2), `--corpus "C:\Pfad\Korpus"` und `--output "C:\Pfad\Berichte"`.
+`--help` zeigt die Optionen. Der Bericht `docs/benchmarks/asr-JJJJ-MM-TT.md`
+wird erst nach erfolgreicher Messung aller installierten Modelle atomar
+bereitgestellt; ein vorhandener Tagesbericht wird ersetzt. Ein fehlendes Paar,
+ungültiges WAV oder ein Modellfehler lässt den Lauf fehlschlagen.
+
+Je Modell startet ein eigener Prozess: Kaltstart, vollständige Aufnahmen und
+je drei Wiederholungen mittiger Zehnsekunden-Ausschnitte aus allen ausreichend
+langen Sprachaufnahmen. Die Zeitgrenze ist streng: Der höchste Median muss
+unter 1,5 Sekunden liegen; mindestens eine Probe muss dreimal nicht leeren
+Text liefern. Auch leere Probeausgaben bleiben in den Zeitmessungen und der
+WER der vollständigen Aufnahme enthalten.
+Unter den geeigneten Modellen entscheidet die niedrigste gepoolte WER.
+Die genauen Messgrenzen, Einzelwerte, RAM-Spitze und Phantomzahlen stehen im
+Bericht. Die Speicherzahl enthält den gesamten Messprozess samt Korpus und
+Modellladen; sie ist kein Leerlaufwert der App.
+
+Satztexte, Audio und Tokenlisten werden weder im Terminal noch im Bericht oder
+in temporären Messdateien ausgegeben. Der private Korpus bleibt unverändert.
+Die Modellentscheidung steht in
+[0001-standardmodell.md](docs/decisions/0001-standardmodell.md).
+Manuell prüfen: Auffällige Aufnahmen anhand ihrer Nummer lokal anhören und
+Referenzen mit dem tatsächlich Gesprochenen vergleichen; anschließend die
+Modellentscheidung lesen. Die zusätzlichen Schutz- und Wortanfangstests aus
+Schritt 1.6 sind noch nicht vorgesehen.
 
 ## Leerlauf und Startzeit messen
 

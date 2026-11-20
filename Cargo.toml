@@ -17,6 +17,7 @@ members = [
     "crates/mcp",
     "tools/models-cli",
     "tools/corpus-recorder",
+    "tools/bench",
 ]
 
 [workspace.package]

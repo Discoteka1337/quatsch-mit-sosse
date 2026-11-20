@@ -254,6 +254,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
+name = "bench"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "hound",
+ "icu_normalizer",
+ "icu_properties",
+ "quatsch-mit-sosse-models",
+ "quatsch-mit-sosse-stt",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "windows",
+]
+
+[[package]]
 name = "bindgen"
 version = "0.69.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -591,8 +607,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
+ "js-sys",
  "num-traits",
  "serde",
+ "wasm-bindgen",
  "windows-link",
 ]
 
@@ -1971,6 +1989,7 @@ dependencies = [
  "icu_properties",
  "icu_provider",
  "smallvec",
+ "utf8_iter",
  "zerovec",
 ]
 
