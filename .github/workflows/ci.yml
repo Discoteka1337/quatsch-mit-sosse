@@ -43,7 +43,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-targets: 'false'
-          cache-directories: 'C:\qms-target'
+          cache-directories: |
+            C:\qms-target
+            ~/AppData/Local/sherpa-rs
 
       - name: Node.js und npm-Cache einrichten
         uses: actions/setup-node@v7

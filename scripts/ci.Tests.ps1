@@ -28,8 +28,16 @@ Assert-Match $workflow '(?m)^\s*CARGO_TARGET_DIR:\s*''C:\\qms-target''\s*$' 'CI 
 Assert-Match $workflow '(?m)^\s*uses:\s*actions/setup-node@\S+\s*$' 'Node muss in CI eingerichtet werden.'
 Assert-Match $workflow '(?m)^\s*cache:\s*''?npm''?\s*$' 'Der npm-Cache fehlt.'
 Assert-Match $workflow '(?m)^\s*cache-dependency-path:\s*[''"]app/ui/package-lock\.json[''"]\s*$' 'Der npm-Cache muss das UI-Lockfile verwenden.'
-Assert-Match $workflow '(?m)^\s*uses:\s*Swatinem/rust-cache@\S+\s*$' 'Der Cargo-Cache fehlt.'
-Assert-Match $workflow '(?m)^\s*cache-directories:\s*''C:\\qms-target''\s*$' 'Der Cargo-Cache muss die tatsächlichen Build-Artefakte erfassen.'
+$rustCacheSteps = @(($workflow -split '(?m)^ +- name:') | Where-Object {
+    $_ -match '(?m)^ +uses: *Swatinem/rust-cache@\S+\s*$'
+})
+if ($rustCacheSteps.Count -ne 1) { throw 'Der gemeinsame Cargo-Cache fehlt oder ist mehrdeutig.' }
+# Read the indented path list of this action so a separate cache cannot satisfy the check.
+$cacheBlock = [regex]::Match($rustCacheSteps[0], '(?m)^(?<indent> +)cache-directories: *\|\r?\n(?<paths>(?:\k<indent> +\S[^\r\n]*(?:\r?\n|$))+)')
+$cachePaths = @($cacheBlock.Groups['paths'].Value -split '\r?\n' | ForEach-Object { $_.Trim() })
+foreach ($path in @('C:\qms-target', '~/AppData/Local/sherpa-rs')) {
+    if ($path -notin $cachePaths) { throw "Im gemeinsamen Cache für Cargo und die nativen sherpa-Bibliotheken fehlt $path." }
+}
 Assert-Match $workflow '(?m)^\s*working-directory:\s*[''"]app/ui[''"]\s*$' 'npm ci muss im UI-Verzeichnis laufen.'
 Assert-Match $workflow '(?m)^\s*run:\s*npm ci(?:\s+[^\r\n]+)?\s*$' 'Die reproduzierbare npm-Installation fehlt.'
 Assert-Match $workflow '(?m)^\s*run:\s*powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/check\.ps1"\s*$' 'CI muss die vollständige zentrale Prüfung ohne reduzierten Stage-Modus ausführen.'
