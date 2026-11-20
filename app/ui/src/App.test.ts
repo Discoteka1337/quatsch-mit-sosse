@@ -14,9 +14,11 @@ describe('app scaffold', () => {
     expect(screen.queryByRole('button')).toBeNull();
   });
 
-  it('renders only the overlay placeholder in the overlay window', () => {
-    render(App, { view: 'overlay' });
-    expect(screen.getByText(de.overlayPlaceholder)).toBeTruthy();
+  it('opens the overlay in its configured ready state', async () => {
+    const { rerender } = render(App, { view: 'overlay' });
+    expect(screen.queryByRole('status')).toBeNull();
+    await rerender({ overlay: { showReady: true } });
+    expect(screen.getByRole('status', { name: de.overlayReady }).textContent).toBe('');
     expect(screen.queryByRole('heading', { name: de.settings })).toBeNull();
     expect(screen.queryByText(de.settingsPlaceholder)).toBeNull();
   });

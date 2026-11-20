@@ -3283,11 +3283,13 @@ dependencies = [
 name = "quatsch-mit-sosse"
 version = "0.1.0"
 dependencies = [
+ "quatsch-mit-sosse-inject",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-single-instance",
+ "tempfile",
  "windows",
 ]
 

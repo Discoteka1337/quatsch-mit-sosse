@@ -1,9 +1,9 @@
 use std::cell::Cell;
 use std::sync::OnceLock;
+use std::thread;
 use std::time::{Duration, Instant};
-use std::{mem, thread};
 
-use super::{Clipboard, InjectError, OwnedFormat, Target};
+use super::{Clipboard, InjectError, OwnedFormat, Target, set_data};
 use windows::Win32::Foundation::{
     ERROR_SUCCESS, GetLastError, HANDLE, HWND, LPARAM, LRESULT, SetLastError, WPARAM,
 };
@@ -164,10 +164,9 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
                     reader_pid,
                     |entry| {
                         // The requester already has the clipboard open for this callback.
-                        unsafe { SetClipboardData(CF_UNICODETEXT.0.into(), Some(entry.handle)) }
-                            .map_err(|_| InjectError::DeliveryUncertain)?;
-                        mem::forget(entry);
-                        Ok(())
+                        entry
+                            .publish_with(set_data)
+                            .map_err(|_| InjectError::DeliveryUncertain)
                     },
                 )
             });
@@ -192,6 +191,14 @@ impl Drop for OwnerWindow {
 
 pub(super) struct ClipboardLock;
 
+impl ClipboardLock {
+    pub(super) fn open(hwnd: HWND) -> Result<Self, InjectError> {
+        unsafe { OpenClipboard(Some(hwnd)) }
+            .map(|_| Self)
+            .map_err(|_| InjectError::Unavailable)
+    }
+}
+
 impl Drop for ClipboardLock {
     fn drop(&mut self) {
         let _ = unsafe { CloseClipboard() };
@@ -204,8 +211,8 @@ impl Clipboard for OwnerWindow {
     fn open(&self, restoring: bool) -> Result<Self::Lock, InjectError> {
         let deadline = Instant::now() + Duration::from_secs(1);
         loop {
-            if unsafe { OpenClipboard(Some(self.hwnd)) }.is_ok() {
-                return Ok(ClipboardLock);
+            if let Ok(lock) = ClipboardLock::open(self.hwnd) {
+                return Ok(lock);
             }
             if restoring {
                 // Keep the snapshot until a busy reader releases our data. Otherwise
@@ -266,9 +273,7 @@ impl Clipboard for OwnerWindow {
     }
 
     fn set(&self, format: CLIPBOARD_FORMAT, handle: HANDLE) -> Result<(), InjectError> {
-        unsafe { SetClipboardData(format.0.into(), Some(handle)) }
-            .map(|_| ())
-            .map_err(|_| InjectError::Unavailable)
+        set_data(format, handle)
     }
 }
 

@@ -28,6 +28,26 @@ public static class QmsNativeWindows {
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr window);
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll", EntryPoint="GetWindowLongW")] public static extern int GetWindowLong(IntPtr window, int index);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern bool GetWindowDisplayAffinity(IntPtr window, out uint affinity);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string className, string title);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Rect { public int left, top, right, bottom; }
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out Rect rect);
+    public static string Position(IntPtr window) {
+        Rect rect;
+        if (!GetWindowRect(window, out rect)) throw new InvalidOperationException("Fensterposition nicht lesbar.");
+        return rect.left + "," + rect.top;
+    }
+    public static bool Drag(IntPtr window) {
+        // Send only client messages to our test window. Leave the real pointer in place.
+        var down = new IntPtr((18 << 16) | 80);
+        var move = new IntPtr((-30 << 16) | 49);
+        return PostMessage(window, 0x0201, new IntPtr(1), down)
+            && PostMessage(window, 0x0200, new IntPtr(1), move)
+            && PostMessage(window, 0x0202, IntPtr.Zero, down);
+    }
     public static IntPtr[] AppWindows(uint processId, string title) {
         var result = new List<IntPtr>();
         EnumWindows((window, state) => {
@@ -71,6 +91,7 @@ function Start-NativeTestProcess {
     $info.WorkingDirectory = [System.IO.Path]::GetDirectoryName("$nativeExecutable")
     $info.UseShellExecute = $false
     $info.CreateNoWindow = $true
+    $info.EnvironmentVariables['LOCALAPPDATA'] = $testData
     $info.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
     $info.EnvironmentVariables.Remove('QMS_BENCHMARK_LOG')
     $info.EnvironmentVariables.Remove('QMS_BENCHMARK_STOP_EVENT')
@@ -124,7 +145,18 @@ function Open-NativeSettings {
     } 'Das Einstellungsfenster muss sichtbar werden.'
 }
 
+function Start-NativeSession {
+    $script:nativeProcess = Start-NativeTestProcess -Log "$logPath" -StopEvent $stopName
+    $rootRecords = @(Get-QmsProcessSnapshot | Where-Object { $_.Id -eq $script:nativeProcess.Id })
+    if ($rootRecords.Count -ne 1) { throw 'Der gestartete App-Prozess fehlt in der Prozessliste.' }
+    $script:nativeRoot = $rootRecords[0]
+    Wait-NativeCondition {
+        (Test-Path -LiteralPath "$logPath") -and (Test-QmsReadyText (Read-QmsReadyLog -Path "$logPath"))
+    } 'Die App muss QMS_READY melden.'
+}
+
 $runId = [guid]::NewGuid().ToString('N')
+$testData = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath "qms-overlay-$runId"
 $logPath = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath "qms-native-$runId.log"
 $stopName = "Local\de.quatschmitsosse.native-test-$runId"
 $stopEvent = [System.Threading.EventWaitHandle]::new($false, [System.Threading.EventResetMode]::ManualReset, $stopName)
@@ -133,21 +165,17 @@ $script:nativeTracked = @{}
 $script:nativeClock = [System.Diagnostics.Stopwatch]::StartNew()
 $cleanExit = $false
 try {
-    $script:nativeProcess = Start-NativeTestProcess -Log "$logPath" -StopEvent $stopName
-    $rootRecords = @(Get-QmsProcessSnapshot | Where-Object { $_.Id -eq $script:nativeProcess.Id })
-    if ($rootRecords.Count -ne 1) { throw 'Der gestartete App-Prozess fehlt in der Prozessliste.' }
-    $script:nativeRoot = $rootRecords[0]
-    Wait-NativeCondition {
-        (Test-Path -LiteralPath "$logPath") -and (Test-QmsReadyText (Read-QmsReadyLog -Path "$logPath"))
-    } 'Die App muss QMS_READY melden.'
+    Start-NativeSession
 
     $initialWindows = @([QmsNativeWindows]::AppWindows($script:nativeProcess.Id, $locale.appName))
     if ($initialWindows.Count -ne 2) { throw 'Beim Start müssen genau zwei native App-Fenster vorhanden sein.' }
+    $overlay = @($initialWindows | Where-Object { ([QmsNativeWindows]::GetWindowLong($_, -20) -band 0x08000000) -ne 0 })
+    if ($overlay.Count -ne 1) { throw 'Genau ein Fenster muss WS_EX_NOACTIVATE verwenden.' }
     if (@($initialWindows | Where-Object { [QmsNativeWindows]::IsWindowVisible($_) }).Count -ne 0) {
         throw 'Die App-Fenster müssen anfangs unsichtbar sein.'
     }
     $initialTexts = @($initialWindows | ForEach-Object { [QmsNativeWindows]::StaticTexts($_, $script:nativeProcess.Id) })
-    foreach ($expected in @($locale.appName, $locale.settings, $locale.settingsPlaceholder, $locale.overlayPlaceholder)) {
+    foreach ($expected in @($locale.appName, $locale.settings, $locale.settingsPlaceholder)) {
         if ($initialTexts -cnotcontains $expected) { throw 'Ein nativer Platzhaltertext aus dem deutschen Sprachkatalog fehlt.' }
     }
 
@@ -160,18 +188,55 @@ try {
         foreach ($expected in @($locale.appName, $locale.settings, $locale.settingsPlaceholder)) {
             if ($texts -cnotcontains $expected) { throw 'Die neu geöffneten Einstellungen enthalten nicht alle nativen deutschen Texte.' }
         }
+        $ready = [QmsNativeWindows]::FindWindowEx($visible, [IntPtr]::Zero, 'Button', $locale.overlayShowReady)
+        $privacy = [QmsNativeWindows]::FindWindowEx($visible, [IntPtr]::Zero, 'Button', $locale.overlayHideFromCapture)
+        if ($ready -eq [IntPtr]::Zero -or $privacy -eq [IntPtr]::Zero) { throw 'Die Overlay-Optionen fehlen.' }
+        if ($cycle -eq 0) {
+            foreach ($control in @($privacy, $ready)) {
+                if (-not [QmsNativeWindows]::PostMessage($control, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)) { throw 'Die Overlay-Option konnte nicht betätigt werden.' }
+            }
+            Wait-NativeCondition { [QmsNativeWindows]::IsWindowVisible($overlay[0]) } 'Der Bereit-Punkt muss erscheinen.'
+            if ([QmsNativeWindows]::GetForegroundWindow() -eq $overlay[0]) { throw 'Das Overlay hat den Fokus übernommen.' }
+            [uint32]$affinity = 0
+            if (-not [QmsNativeWindows]::GetWindowDisplayAffinity($overlay[0], [ref]$affinity) -or $affinity -ne 0x11) {
+                throw 'Der Aufnahmeschutz ist am sichtbaren Overlay nicht wirksam.'
+            }
+            $before = [QmsNativeWindows]::Position($overlay[0])
+            if (-not [QmsNativeWindows]::Drag($overlay[0])) { throw 'Das Overlay lässt sich nicht ziehen.' }
+            Wait-NativeCondition { [QmsNativeWindows]::Position($overlay[0]) -ne $before } 'Das Overlay muss sich beim Ziehen bewegen.'
+            $dragged = [QmsNativeWindows]::Position($overlay[0])
+            if ([QmsNativeWindows]::GetForegroundWindow() -eq $overlay[0]) { throw 'Beim Ziehen ist der Fokus ins Overlay gewechselt.' }
+            $null = [QmsNativeWindows]::PostMessage($ready, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+            Wait-NativeCondition { -not [QmsNativeWindows]::IsWindowVisible($overlay[0]) } 'Der Bereit-Punkt muss verschwinden.'
+        } elseif ($cycle -eq 2) {
+            $null = [QmsNativeWindows]::PostMessage($ready, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+            Wait-NativeCondition { [QmsNativeWindows]::IsWindowVisible($overlay[0]) } 'Der Bereit-Punkt muss erneut erscheinen.'
+        }
         if (-not [QmsNativeWindows]::PostMessage($visible, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) {
             throw 'Das eigene Einstellungsfenster konnte nicht geschlossen werden.'
         }
         Wait-NativeCondition { -not [QmsNativeWindows]::IsWindow($visible) } 'Das Einstellungsfenster muss beim Schließen zerstört werden.'
         if (@([QmsNativeWindows]::AppWindows($script:nativeProcess.Id, $locale.appName)).Count -ne 1) {
-            throw 'Nach dem Schließen darf nur das unsichtbare Overlay verbleiben.'
+            throw 'Nach dem Schließen darf nur das Overlay verbleiben.'
         }
     }
     Assert-NoBrowserRuntime
     $null = Stop-QmsMeasuredApp -Process $script:nativeProcess -StopEvent $stopEvent -Tracked $script:nativeTracked
+    foreach ($entry in $script:nativeTracked.Values) { $entry.Process.Dispose() }
+    $script:nativeTracked = @{}
+    $script:nativeProcess.Dispose()
+    $script:nativeProcess = $null
+    $null = $stopEvent.Reset()
+    Remove-Item -LiteralPath "$logPath"
+    Start-NativeSession
+    $restored = @([QmsNativeWindows]::AppWindows($script:nativeProcess.Id, $locale.appName) | Where-Object { [QmsNativeWindows]::IsWindowVisible($_) })
+    if ($restored.Count -ne 1 -or [QmsNativeWindows]::Position($restored[0]) -ne $dragged -or
+        -not [QmsNativeWindows]::GetWindowDisplayAffinity($restored[0], [ref]$affinity) -or $affinity -ne 0x11) {
+        throw 'Bereit-Punkt, verschobene Position und Aufnahmeschutz müssen den Neustart überstehen.'
+    }
+    $null = Stop-QmsMeasuredApp -Process $script:nativeProcess -StopEvent $stopEvent -Tracked $script:nativeTracked
     $cleanExit = $true
-    Write-Host 'Native UI-Regression bestanden: keine WebView2-Kinder, zwei versteckte Fenster, deutsche native Texte, Single-instance, drei Zerstörungs-/Neuöffnungszyklen und reguläres Ende.'
+    Write-Host 'Native Fensterprüfung bestanden: deutsche Bedienung, Ein-Instanz-Betrieb, Fokus beim Ziehen, Aufnahmeschutz, gespeicherte Position nach Neustart und Prozessprüfung ohne WebView2.'
 } finally {
     try {
         $null = $stopEvent.Set()
@@ -195,5 +260,11 @@ try {
     } finally {
         $stopEvent.Dispose()
         if (Test-Path -LiteralPath "$logPath") { Remove-Item -LiteralPath "$logPath" }
+        if (Test-Path -LiteralPath "$testData") {
+            $resolvedData = (Resolve-Path -LiteralPath "$testData").ProviderPath
+            $expectedData = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "qms-overlay-$runId")
+            if ($resolvedData -ne $expectedData) { throw 'Unerwarteter Pfad für die Testdaten.' }
+            Remove-Item -LiteralPath "$resolvedData" -Recurse -Force
+        }
     }
 }

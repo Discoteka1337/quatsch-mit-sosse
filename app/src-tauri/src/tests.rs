@@ -40,6 +40,8 @@ fn window_defaults_keep_the_app_in_the_tray() {
     assert!(overlay.always_on_top);
     assert!(overlay.skip_taskbar);
     assert!(!overlay.focus);
+    assert!(!overlay.focusable);
+    assert_eq!((overlay.width, overlay.height), (160.0, 36.0));
 }
 
 #[test]
@@ -72,7 +74,11 @@ fn native_texts_come_from_the_shared_german_catalog() {
         assert!(!locale.settings_open_error.is_empty());
         assert!(!locale.startup_error.is_empty());
         assert!(!locale.settings_placeholder.is_empty());
-        assert!(!locale.overlay_placeholder.is_empty());
+        assert!(!locale.overlay_show_ready.is_empty());
+        assert!(!locale.overlay_hide_from_capture.is_empty());
+        assert!(!locale.overlay_copy_error.is_empty());
+        assert!(!locale.overlay_preferences_error.is_empty());
+        assert!(!locale.overlay_administrator_help.is_empty());
     }
 }
 

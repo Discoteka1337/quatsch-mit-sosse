@@ -80,6 +80,34 @@ impl TestClipboard {
 }
 
 #[test]
+fn a_manual_copy_prepares_private_formats_and_preserves_the_dictation() {
+    let (flags, text) = protected_formats("Öl\n3,5 %").unwrap();
+    let clip = TestClipboard::default();
+    publish_immediately(flags, text, |format, handle| clip.set(format, handle)).unwrap();
+    for name in PRIVACY_FORMATS {
+        assert_eq!(clip.read(register(name).unwrap(), 4), [0; 4]);
+    }
+    let bytes = utf16_bytes("Öl\r\n3,5 %");
+    assert_eq!(clip.read(CF_UNICODETEXT, bytes.len()), bytes);
+    assert!(protected_formats("a\0b").is_err());
+    assert!(protected_formats("").is_err());
+}
+
+#[test]
+fn manual_copy_stops_before_publishing_any_text_if_a_privacy_format_is_rejected() {
+    let clip = TestClipboard::default();
+    let (flags, text) = protected_formats("Wiederhergestellter Text").unwrap();
+    let second = register(PRIVACY_FORMATS[1]).unwrap();
+    clip.reject_next.set(Some(u32::from(second.0)));
+    let result = publish_immediately(flags, text, |format, handle| clip.set(format, handle));
+    assert_eq!(result, Err(InjectError::Unavailable));
+    assert_eq!(
+        clip.formats().unwrap(),
+        [register(PRIVACY_FORMATS[0]).unwrap()]
+    );
+}
+
+#[test]
 fn restores_text_html_and_images_after_using_protected_clipboard() {
     let clip = TestClipboard::default();
     let html = register(w!("HTML Format")).unwrap();

@@ -1,87 +1,57 @@
 use std::{io, sync::Mutex, thread::ThreadId};
-use tauri::{Runtime, Window, WindowEvent};
+use tauri::{AppHandle, Manager, Window, WindowEvent};
 use windows::{
     Win32::{
-        Foundation::{HWND, LPARAM, RECT, WPARAM},
+        Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
         Graphics::Gdi::{
             CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, DEFAULT_CHARSET, DEFAULT_GUI_FONT,
             DEFAULT_PITCH, DeleteObject, FF_DONTCARE, GetStockObject, HGDIOBJ, OUT_DEFAULT_PRECIS,
         },
-        System::SystemServices::{SS_CENTER, SS_CENTERIMAGE, SS_NOPREFIX},
+        System::SystemServices::SS_NOPREFIX,
         UI::{
             HiDpi::GetDpiForWindow,
+            Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
             WindowsAndMessaging::{
-                CreateWindowExW, DestroyWindow, GetClientRect, SWP_NOACTIVATE, SWP_NOZORDER,
-                SendMessageW, SetWindowPos, WINDOW_EX_STYLE, WINDOW_STYLE, WM_SETFONT, WS_CHILD,
-                WS_VISIBLE,
+                BM_SETCHECK, BN_CLICKED, BS_CHECKBOX, CreateWindowExW, DestroyWindow,
+                GetClientRect, HMENU, MB_ICONERROR, MB_OK, MessageBoxW, SWP_NOACTIVATE,
+                SWP_NOZORDER, SendMessageW, SetWindowPos, WINDOW_EX_STYLE, WINDOW_STYLE,
+                WM_COMMAND, WM_NCDESTROY, WM_SETFONT, WS_CHILD, WS_TABSTOP, WS_VISIBLE,
             },
         },
     },
     core::{HSTRING, w},
 };
 
-#[derive(Clone, Copy)]
-pub enum Content<'a> {
-    Settings {
-        app_name: &'a str,
-        heading: &'a str,
-        placeholder: &'a str,
-    },
-    Overlay {
-        placeholder: &'a str,
-    },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Kind {
-    Settings,
-    Overlay,
-}
+const SHOW_READY: u16 = 101;
+const HIDE_FROM_CAPTURE: u16 = 102;
 
 #[derive(Clone, Copy, Debug)]
 struct Label<'a> {
     text: &'a str,
     size: i32,
     weight: i32,
+    checkbox: Option<u16>,
 }
 
-impl<'a> Content<'a> {
-    fn labels(self) -> (Kind, Vec<Label<'a>>) {
-        match self {
-            Self::Settings {
-                app_name,
-                heading,
-                placeholder,
-            } => (
-                Kind::Settings,
-                vec![
-                    Label {
-                        text: app_name,
-                        size: 14,
-                        weight: 400,
-                    },
-                    Label {
-                        text: heading,
-                        size: 24,
-                        weight: 600,
-                    },
-                    Label {
-                        text: placeholder,
-                        size: 14,
-                        weight: 400,
-                    },
-                ],
-            ),
-            Self::Overlay { placeholder } => (
-                Kind::Overlay,
-                vec![Label {
-                    text: placeholder,
-                    size: 14,
-                    weight: 400,
-                }],
-            ),
-        }
-    }
+fn settings_controls(text: &crate::Messages) -> [Label<'_>; 5] {
+    let label = |text, size, weight, checkbox| Label {
+        text,
+        size,
+        weight,
+        checkbox,
+    };
+    [
+        label(&text.app_name, 14, 400, None),
+        label(&text.settings, 24, 600, None),
+        label(&text.settings_placeholder, 14, 400, None),
+        label(&text.overlay_show_ready, 14, 400, Some(SHOW_READY)),
+        label(
+            &text.overlay_hide_from_capture,
+            14,
+            400,
+            Some(HIDE_FROM_CAPTURE),
+        ),
+    ]
 }
 
 #[derive(Debug, PartialEq)]
@@ -96,42 +66,38 @@ fn scale(value: i32, dpi: u32) -> i32 {
     (value as i64 * dpi.max(96) as i64 / 96) as i32
 }
 
-fn layout(kind: Kind, width: i32, height: i32, dpi: u32) -> Vec<Rect> {
+fn layout(width: i32, height: i32, dpi: u32) -> [Rect; 5] {
     let width = width.max(0);
     let height = height.max(0);
-    let margin = scale(if kind == Kind::Settings { 24 } else { 12 }, dpi);
+    let margin = scale(24, dpi);
     let x = margin.min(width / 2);
     let box_width = (width - 2 * x).max(0);
     let rect = |y: i32, box_height: i32| {
-        let y = y.min(height);
+        let y = scale(y, dpi).min(height);
         Rect {
             x,
             y,
             width: box_width,
-            height: box_height.min(height - y).max(0),
+            height: scale(box_height, dpi).min(height - y).max(0),
         }
     };
-    match kind {
-        Kind::Settings => vec![
-            rect(scale(24, dpi), scale(24, dpi)),
-            rect(scale(64, dpi), scale(34, dpi)),
-            rect(scale(116, dpi), (height - scale(140, dpi)).max(0)),
-        ],
-        Kind::Overlay => {
-            let y = margin.min(height / 2);
-            vec![rect(y, height - 2 * y)]
-        }
-    }
+    [
+        rect(24, 24),
+        rect(62, 36),
+        rect(110, 44),
+        rect(158, 32),
+        rect(196, 32),
+    ]
 }
 
 fn native_error() -> io::Error {
     io::Error::other("The native window content could not be initialized")
 }
 
-struct Font(usize);
+pub(super) struct Font(pub(super) usize);
 
 impl Font {
-    fn create(size: i32, weight: i32, dpi: u32) -> io::Result<Self> {
+    pub(super) fn create(size: i32, weight: i32, dpi: u32) -> io::Result<Self> {
         let font = unsafe {
             CreateFontW(
                 -scale(size, dpi),
@@ -188,7 +154,6 @@ impl Control {
 struct NativeControls {
     owner: ThreadId,
     parent: usize,
-    kind: Kind,
     dpi: u32,
     controls: Vec<Control>,
     parent_owned: bool,
@@ -233,7 +198,6 @@ impl NativeControls {
             self.dpi = dpi;
         }
         for (control, bounds) in self.controls.iter().zip(layout(
-            self.kind,
             bounds.right - bounds.left,
             bounds.bottom - bounds.top,
             dpi,
@@ -269,43 +233,102 @@ impl Drop for NativeControls {
     }
 }
 
-/// Attach on the owning window thread; all visible strings come from the caller's catalog.
-pub fn attach<R: Runtime>(window: &Window<R>, content: Content<'_>) -> tauri::Result<()> {
+unsafe extern "system" fn settings_proc(
+    hwnd: HWND,
+    msg: u32,
+    wp: WPARAM,
+    lp: LPARAM,
+    id: usize,
+    data: usize,
+) -> LRESULT {
+    if msg == WM_NCDESTROY {
+        unsafe {
+            let _ = RemoveWindowSubclass(hwnd, Some(settings_proc), id);
+            drop(Box::from_raw(data as *mut AppHandle));
+        }
+    } else if msg == WM_COMMAND && (wp.0 >> 16) as u32 == BN_CLICKED && lp.0 != 0 {
+        let control = wp.0 as u16;
+        if matches!(control, SHOW_READY | HIDE_FROM_CAPTURE) {
+            // Clone before calling Win32 again: a nested message may destroy the window.
+            let app = unsafe { (&*(data as *const AppHandle)).clone() };
+            match crate::overlay::toggle_preference(&app, control == SHOW_READY) {
+                Ok(checked) => unsafe {
+                    SendMessageW(
+                        HWND(lp.0 as _),
+                        BM_SETCHECK,
+                        Some(WPARAM(usize::from(checked))),
+                        None,
+                    );
+                },
+                Err(_) => {
+                    let text = crate::messages();
+                    unsafe {
+                        MessageBoxW(
+                            Some(hwnd),
+                            &HSTRING::from(&text.overlay_preferences_error),
+                            &HSTRING::from(&text.app_name),
+                            MB_OK | MB_ICONERROR,
+                        );
+                    }
+                }
+            }
+            return LRESULT(0);
+        }
+    }
+    unsafe { DefSubclassProc(hwnd, msg, wp, lp) }
+}
+
+/// Attach controls and their command handler on the owning window thread.
+pub(super) fn attach(window: &Window) -> tauri::Result<()> {
     let parent = window.hwnd()?;
     let dpi = unsafe { GetDpiForWindow(parent) }.max(96);
-    let (kind, labels) = content.labels();
+    let options = crate::overlay::preferences(window.app_handle())?;
     let mut native = NativeControls {
         owner: std::thread::current().id(),
         parent: parent.0 as usize,
-        kind,
         dpi,
         controls: Vec::new(),
         parent_owned: false,
     };
-    for label in labels {
+    for label in settings_controls(crate::messages()) {
         let font = Font::create(label.size, label.weight, dpi)?;
-        let alignment = if kind == Kind::Overlay {
-            SS_CENTER.0 | SS_CENTERIMAGE.0
+        let (class, style) = if label.checkbox.is_some() {
+            (w!("BUTTON"), WS_TABSTOP | WINDOW_STYLE(BS_CHECKBOX as u32))
         } else {
-            0
+            (w!("STATIC"), WINDOW_STYLE(SS_NOPREFIX.0))
         };
         let handle = unsafe {
             CreateWindowExW(
                 WINDOW_EX_STYLE::default(),
-                w!("STATIC"),
+                class,
                 &HSTRING::from(label.text),
-                WS_CHILD | WS_VISIBLE | WINDOW_STYLE(SS_NOPREFIX.0 | alignment),
+                WS_CHILD | WS_VISIBLE | style,
                 0,
                 0,
                 0,
                 0,
                 Some(parent),
-                None,
+                label.checkbox.map(|id| HMENU(usize::from(id) as _)),
                 None,
                 None,
             )
         }
         .map_err(|_| native_error())?;
+        if let Some(id) = label.checkbox {
+            let checked = if id == SHOW_READY {
+                options.show_ready
+            } else {
+                options.hide_from_capture
+            };
+            unsafe {
+                SendMessageW(
+                    handle,
+                    BM_SETCHECK,
+                    Some(WPARAM(usize::from(checked))),
+                    None,
+                )
+            };
+        }
         let control = Control {
             handle: handle.0 as usize,
             font,
@@ -316,6 +339,21 @@ pub fn attach<R: Runtime>(window: &Window<R>, content: Content<'_>) -> tauri::Re
         native.controls.push(control);
     }
     native.relayout()?;
+    let app = Box::new(window.app_handle().clone());
+    if !unsafe {
+        SetWindowSubclass(
+            parent,
+            Some(settings_proc),
+            1,
+            (&*app as *const AppHandle) as usize,
+        )
+    }
+    .as_bool()
+    {
+        return Err(native_error().into());
+    }
+    // The subclass takes ownership until WM_NCDESTROY.
+    let _ = Box::into_raw(app);
     native.parent_owned = true;
     let native = Mutex::new(Some(native));
     window.on_window_event(move |event| {
@@ -347,62 +385,34 @@ mod tests {
 
     #[test]
     fn native_settings_preserve_all_catalog_texts() {
-        let (kind, labels) = Content::Settings {
-            app_name: "Anwendung mit ß & Umlauten",
-            heading: "Überschrift",
-            placeholder: "Platzhalter aus dem Katalog",
-        }
-        .labels();
-        assert_eq!(kind, Kind::Settings);
+        let text = crate::messages();
+        let labels = settings_controls(text);
         assert_eq!(
             labels.iter().map(|label| label.text).collect::<Vec<_>>(),
             [
-                "Anwendung mit ß & Umlauten",
-                "Überschrift",
-                "Platzhalter aus dem Katalog"
+                &text.app_name,
+                &text.settings,
+                &text.settings_placeholder,
+                &text.overlay_show_ready,
+                &text.overlay_hide_from_capture
             ]
         );
     }
 
     #[test]
-    fn native_overlay_contains_only_its_placeholder() {
-        let (kind, labels) = Content::Overlay {
-            placeholder: "Overlay aus dem Katalog",
-        }
-        .labels();
-        assert_eq!(kind, Kind::Overlay);
-        assert_eq!(labels.len(), 1);
-        assert_eq!(labels[0].text, "Overlay aus dem Katalog");
-    }
-
-    #[test]
     fn minimum_window_layouts_remain_inside_client_area_at_each_dpi() {
         for dpi in [96, 120, 144, 192] {
-            for (kind, logical_width, logical_height, count) in
-                [(Kind::Settings, 360, 220, 3), (Kind::Overlay, 280, 72, 1)]
-            {
-                let width = logical_width * dpi as i32 / 96;
-                let height = logical_height * dpi as i32 / 96;
-                let boxes = layout(kind, width, height, dpi);
-                assert_eq!(boxes.len(), count);
-                for rect in boxes {
-                    assert!(rect.x >= 0 && rect.y >= 0);
-                    assert!(rect.width > 0 && rect.height > 0);
-                    assert!(rect.x + rect.width <= width);
-                    assert!(rect.y + rect.height <= height);
-                }
+            let width = scale(400, dpi);
+            let height = scale(300, dpi);
+            let boxes = layout(width, height, dpi);
+            assert_eq!(boxes.len(), 5);
+            assert!(boxes.windows(2).all(|r| r[0].y + r[0].height <= r[1].y));
+            for rect in boxes {
+                assert!(rect.x >= 0 && rect.y >= 0);
+                assert!(rect.width > 0 && rect.height > 0);
+                assert!(rect.x + rect.width <= width);
+                assert!(rect.y + rect.height <= height);
             }
         }
-    }
-
-    #[test]
-    fn resizing_extends_the_wrapped_placeholder_instead_of_clipping_it() {
-        let small = layout(Kind::Settings, 360, 220, 96);
-        let large = layout(Kind::Settings, 760, 520, 96);
-        assert_eq!(small.len(), 3);
-        assert_eq!(large.len(), 3);
-        assert!(large[2].width > small[2].width);
-        assert!(large[2].height > small[2].height);
-        assert_eq!(large[2].y, small[2].y);
     }
 }

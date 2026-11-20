@@ -9,7 +9,12 @@ use tauri::{
 
 mod benchmark;
 mod native_ui;
+mod overlay;
+mod overlay_placement;
+mod overlay_window;
 mod settings_gate;
+
+pub use overlay::{OverlayState, set_overlay_state};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,7 +25,17 @@ struct Messages {
     settings_open_error: String,
     startup_error: String,
     settings_placeholder: String,
-    overlay_placeholder: String,
+    overlay_show_ready: String,
+    overlay_hide_from_capture: String,
+    overlay_listening: String,
+    overlay_processing: String,
+    overlay_inserting: String,
+    overlay_error: String,
+    overlay_copy: String,
+    overlay_administrator: String,
+    overlay_administrator_help: String,
+    overlay_preferences_error: String,
+    overlay_copy_error: String,
 }
 
 fn messages() -> &'static Messages {
@@ -53,19 +68,11 @@ fn create_native_window<R: Runtime>(app: &AppHandle<R>, label: &str) -> tauri::R
 }
 
 fn attach_native_content(window: &Window, label: &str) -> tauri::Result<()> {
-    let text = messages();
-    let content = match label {
-        "settings" => native_ui::Content::Settings {
-            app_name: &text.app_name,
-            heading: &text.settings,
-            placeholder: &text.settings_placeholder,
-        },
-        "overlay" => native_ui::Content::Overlay {
-            placeholder: &text.overlay_placeholder,
-        },
-        _ => return Err(std::io::Error::other("Unknown native window").into()),
-    };
-    native_ui::attach(window, content)
+    match label {
+        "settings" => native_ui::attach(window),
+        "overlay" => overlay::attach(window),
+        _ => Err(std::io::Error::other("Unknown native window").into()),
+    }
 }
 
 fn create_app_window(app: &AppHandle, label: &str) -> tauri::Result<Window> {
@@ -152,6 +159,7 @@ pub fn run() -> tauri::Result<()> {
         }))
         .setup(move |app| {
             app.manage(std::thread::current().id());
+            app.manage(overlay::Controller::open()?);
             let text = messages();
             let settings = MenuItem::with_id(app, "settings", &text.settings, true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", &text.quit, true, None::<&str>)?;

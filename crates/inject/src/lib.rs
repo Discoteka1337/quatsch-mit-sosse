@@ -10,6 +10,8 @@ mod native;
 #[cfg(windows)]
 mod uia;
 
+#[cfg(windows)]
+pub use clipboard::copy_recovered_text;
 pub use config::InjectConfig;
 #[cfg(windows)]
 use native::Target;
@@ -70,6 +72,15 @@ pub enum InjectError {
 }
 
 #[cfg(any(windows, test))]
+fn validate_text(text: &str) -> Result<(), InjectError> {
+    if text.is_empty() || text.contains('\0') {
+        Err(InjectError::InvalidText)
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(any(windows, test))]
 fn is_long(text: &str) -> bool {
     text.chars().nth(2000).is_some()
 }
@@ -81,9 +92,7 @@ fn route(
     mut attempt: impl FnMut(InjectMethod) -> Result<(), InjectError>,
 ) -> Result<InjectMethod, InjectError> {
     use InjectMethod::{Clipboard, UiAutomation, Unicode};
-    if text.is_empty() || text.contains('\0') {
-        return Err(InjectError::InvalidText);
-    }
+    validate_text(text)?;
     let forced = if is_long(text) {
         Some(Clipboard)
     } else {

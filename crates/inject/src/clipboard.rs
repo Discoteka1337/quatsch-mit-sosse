@@ -1,9 +1,11 @@
 use std::mem;
-use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL};
+use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL, HWND};
 use windows::Win32::Graphics::Gdi::{
     CopyEnhMetaFileW, DeleteEnhMetaFile, DeleteMetaFile, DeleteObject, HENHMETAFILE, HGDIOBJ,
 };
-use windows::Win32::System::DataExchange::{METAFILEPICT, RegisterClipboardFormatW};
+use windows::Win32::System::DataExchange::{
+    EmptyClipboard, METAFILEPICT, RegisterClipboardFormatW, SetClipboardData,
+};
 use windows::Win32::System::Memory::{
     GMEM_MOVEABLE, GMEM_ZEROINIT, GlobalAlloc, GlobalLock, GlobalUnlock,
 };
@@ -13,7 +15,7 @@ use windows::Win32::System::Ole::{
     CLIPBOARD_FORMAT, OleDuplicateData,
 };
 mod owner;
-use owner::OwnerWindow;
+use owner::{ClipboardLock, OwnerWindow};
 use windows::core::{PCWSTR, w};
 
 use super::{InjectError, Target, keyboard};
@@ -26,6 +28,35 @@ const PRIVACY_FORMATS: [PCWSTR; 3] = [
     w!("CanIncludeInClipboardHistory"),
     w!("CanUploadToCloudClipboard"),
 ];
+
+/// Replace the clipboard on an explicit copy request, retaining the text for later paste.
+/// A busy clipboard can be retried by the caller without changing the foreground window.
+pub fn copy_recovered_text(owner: HWND, text: &str) -> Result<(), InjectError> {
+    if owner.is_invalid() {
+        return Err(InjectError::Unavailable);
+    }
+    let (flags, text) = protected_formats(text)?;
+    let _open = ClipboardLock::open(owner)?;
+    unsafe { EmptyClipboard() }.map_err(|_| InjectError::Unavailable)?;
+    publish_immediately(flags, text, set_data)
+}
+
+fn publish_immediately(
+    flags: Vec<OwnedFormat>,
+    text: OwnedFormat,
+    mut set: impl FnMut(CLIPBOARD_FORMAT, HANDLE) -> Result<(), InjectError>,
+) -> Result<(), InjectError> {
+    for entry in flags.into_iter().chain([text]) {
+        entry.publish_with(&mut set)?;
+    }
+    Ok(())
+}
+
+fn set_data(format: CLIPBOARD_FORMAT, handle: HANDLE) -> Result<(), InjectError> {
+    unsafe { SetClipboardData(format.0.into(), Some(handle)) }
+        .map(|_| ())
+        .map_err(|_| InjectError::Unavailable)
+}
 
 pub(crate) fn paste(target: &Target, text: &str) -> Result<(), InjectError> {
     let owner = OwnerWindow::new(target)?;
@@ -57,21 +88,26 @@ trait Clipboard {
     fn set(&self, format: CLIPBOARD_FORMAT, handle: HANDLE) -> Result<(), InjectError>;
 }
 
+fn protected_formats(text: &str) -> Result<(Vec<OwnedFormat>, OwnedFormat), InjectError> {
+    super::validate_text(text)?;
+    let mut flags = Vec::with_capacity(PRIVACY_FORMATS.len());
+    for name in PRIVACY_FORMATS {
+        flags.push(OwnedFormat::from_bytes(
+            register(name)?,
+            &0u32.to_le_bytes(),
+        )?);
+    }
+    let text = OwnedFormat::from_bytes(CF_UNICODETEXT, &utf16_bytes(text))?;
+    Ok((flags, text))
+}
+
 fn temporary_text(
     clipboard: &impl Clipboard,
     text: &str,
     check_target: impl FnOnce() -> Result<(), InjectError>,
     use_clipboard: impl FnOnce() -> Result<(), InjectError>,
 ) -> Result<(), InjectError> {
-    let mut replacement = Vec::new();
-    for name in PRIVACY_FORMATS {
-        replacement.push(OwnedFormat::from_bytes(
-            register(name)?,
-            &0u32.to_le_bytes(),
-        )?);
-    }
-    let text = OwnedFormat::from_bytes(CF_UNICODETEXT, &utf16_bytes(text))?;
-
+    let (replacement, text) = protected_formats(text)?;
     let backup = {
         let _open = clipboard.open(false)?;
         let available = clipboard.formats()?;
@@ -196,7 +232,14 @@ impl OwnedFormat {
     }
 
     fn publish(self, clipboard: &impl Clipboard) -> Result<(), InjectError> {
-        clipboard.set(self.format, self.handle)?;
+        self.publish_with(|format, handle| clipboard.set(format, handle))
+    }
+
+    fn publish_with(
+        self,
+        set: impl FnOnce(CLIPBOARD_FORMAT, HANDLE) -> Result<(), InjectError>,
+    ) -> Result<(), InjectError> {
+        set(self.format, self.handle)?;
         // The clipboard now owns the handle.
         mem::forget(self);
         Ok(())

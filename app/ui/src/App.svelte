@@ -1,13 +1,18 @@
 <script lang="ts">
   import { getMessages } from './i18n';
+  import type { ComponentProps } from 'svelte';
+  import Overlay from './Overlay.svelte';
 
-  let { view = 'settings' }: { view?: 'settings' | 'overlay' } = $props();
+  let { view = 'settings', overlay }: {
+    view?: 'settings' | 'overlay';
+    overlay?: ComponentProps<typeof Overlay>;
+  } = $props();
   const messages = getMessages();
 </script>
 
 {#if view === 'overlay'}
   <main class="overlay">
-    <p>{messages.overlayPlaceholder}</p>
+    <Overlay {...overlay} />
   </main>
 {:else}
   <main class="settings">
@@ -48,14 +53,5 @@
     min-height: 100vh;
     place-items: center;
     background: transparent;
-  }
-
-  .overlay p {
-    margin: 8px;
-    padding: 10px 20px;
-    border: 1px solid #ffffff40;
-    border-radius: 24px;
-    background: #202632ee;
-    color: #fff;
   }
 </style>

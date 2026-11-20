@@ -27,7 +27,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/dev.ps1"
 
 Das Skript lädt die MSVC-Umgebung, setzt `CARGO_TARGET_DIR` auf `C:\qms-target` und startet Vite mit der Tauri-App. Der Entwicklungsserver für das separate Svelte-Gerüst ist nur unter `127.0.0.1:1420` erreichbar; die Desktop-App zeigt native Steuerelemente. Rust- und npm-Abhängigkeiten benötigen beim ersten Einrichten einen Download. Der Modell-Manager lädt ausschließlich auf ausdrücklichen Installationsaufruf von den freigegebenen Modellhosts. In einer bereits vorbereiteten Entwickler-Shell funktioniert auch `npm --prefix "app/ui" run tauri -- dev`.
 
-Beide Fenster starten unsichtbar. Das Tray-Menü **Einstellungen** öffnet den deutschen Platzhalter. Das Schließen zerstört das Einstellungsfenster samt nativen Steuerelementen; beim nächsten Öffnen wird es neu erstellt. **Beenden** beendet die App. Ein weiterer App-Start öffnet die Einstellungen der vorhandenen Instanz.
+Das Tray-Menü **Einstellungen** öffnet die Overlay-Optionen. Mit **Bereit-Punkt anzeigen** wird der sonst ausgeblendete Punkt sichtbar. Den Punkt oder die aktive Leiste mit der Maus an die gewünschte Stelle ziehen. Die App merkt sich die Position pro Monitor. **In Bildschirmaufnahmen verbergen** schaltet den Windows-Aufnahmeschutz für das Overlay ein. Einzelheiten stehen in [Entscheidung 0014](docs/decisions/0014-natives-diktat-overlay.md).
+
+Das Schließen zerstört das Einstellungsfenster samt Steuerelementen. Ein weiterer App-Start öffnet die Einstellungen der vorhandenen Instanz. **Beenden** im Tray beendet die App.
 
 ## Prüfungen ab Schritt 0.2
 
@@ -245,6 +247,6 @@ Das Skript baut die Release-App ohne Installer nach `C:\qms-target`, startet sie
 
 Die Tabelle enthält Private Bytes, Working Set und CPU des gesamten erkannten App-Prozessbaums einschließlich aller erfassten Kindprozesse. MB bedeutet 1.000.000 Bytes; CPU ist auf alle logischen Prozessoren normiert. Speicherziele werden gegen das Maximum, das CPU-Ziel gegen den Mittelwert geprüft. Die App beendet sich danach regulär; erst nach bestätigtem Ende wird `docs/benchmarks/idle-JJJJ-MM-TT.json` geschrieben. Eine erneute Messung am selben Tag ersetzt diesen Tagesbericht.
 
-`QMS_READY` bestätigt derzeit Tray und Ereignisschleife. Der Hotkey ist erst für Schritt 2.1 vorgesehen; diese Messung ist deshalb eine Basislinie für das Gerüst. Details zu Prozesszuordnung, Messgrenzen und Bereitschaft stehen in [Entscheidung 0004](docs/decisions/0004-leerlaufmessung.md). Die Leistungsoptimierung folgt in Schritt 8.2; Werte über dem Ziel sind jetzt kein fehlgeschlagener Funktionstest. Der vollständige Installer-Test ist noch nicht vorgesehen. Das Overlay bleibt unsichtbar und hat noch keine Bedienfunktion.
+`QMS_READY` bestätigt derzeit Tray und Ereignisschleife. Die Basismessung aus Schritt 0.3 erfolgte mit ausgeblendetem Overlay. Die Anbindung an den Diktatablauf folgt in Schritt 2.4, die Leistungsoptimierung in Schritt 8.2. Der vollständige Installer-Test ist noch nicht vorgesehen. Details zu Prozesszuordnung, Messgrenzen und Bereitschaft stehen in [Entscheidung 0004](docs/decisions/0004-leerlaufmessung.md).
 
 Lizenz: [Apache-2.0](LICENSE), Copyright 2026 Denis R. Hinweise zu Drittanbietern und Modellen werden in [NOTICE](NOTICE) gesammelt.
