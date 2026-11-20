@@ -3,8 +3,10 @@ use quatsch_mit_sosse_models::Manager;
 use quatsch_mit_sosse_stt::{EngineConfig, Error as SttError, SpeechEngine, create_engine};
 use std::cell::OnceCell;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use unicode_segmentation::UnicodeSegmentation;
 
-pub(super) const DEFAULT_MODEL: &str = "parakeet-primeline-de-int8";
+const PRIMELINE_MODEL: &str = "parakeet-primeline-de-int8";
+pub(super) const DEFAULT_MODEL: &str = PRIMELINE_MODEL;
 pub(super) const FALLBACK_MODEL: &str = "parakeet-v3-int8";
 pub(super) const VAD_MODEL: &str = "silero-vad";
 
@@ -258,10 +260,42 @@ impl Recognizer {
         }
         let (_, engine) = self.engine.as_mut().expect("engine created above");
         // SpeechEngine runs Silero first and loads ASR only when it finds speech.
-        engine
-            .transcribe(samples, SAMPLE_RATE, Some("de"))
-            .map(|transcript| transcript.text)
+        let text = engine.transcribe(samples, SAMPLE_RATE, Some("de"))?.text;
+        Ok(if model == PRIMELINE_MODEL && text.contains("ss") {
+            restore_primeline_sharp_s(&text)
+        } else {
+            text
+        })
     }
+}
+
+// Keep these whole-word spellings tied to observed German dictation.
+// Ambiguous words such as "Masse" and "Busse" require context.
+fn restore_primeline_sharp_s(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    for token in text.split_inclusive(char::is_whitespace) {
+        // Preserve technical spellings in email addresses, URLs and paths.
+        if !token.contains("ss") || token.contains(['@', '/', '\\']) {
+            result.push_str(token);
+            continue;
+        }
+        result.extend(token.split_word_bounds().map(|word| match word {
+            "Übermass" => "Übermaß",
+            "übermass" => "übermaß",
+            "Grüsse" => "Grüße",
+            "grüsse" => "grüße",
+            "Strasse" => "Straße",
+            "strasse" => "straße",
+            "Draussen" => "Draußen",
+            "draussen" => "draußen",
+            "Grossen" => "Großen",
+            "grossen" => "großen",
+            "Fuss" => "Fuß",
+            "fuss" => "fuß",
+            _ => word,
+        }));
+    }
+    result
 }
 
 fn recognition_message(error: &SttError) -> String {

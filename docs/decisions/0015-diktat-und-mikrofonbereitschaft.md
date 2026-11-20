@@ -21,3 +21,7 @@ Die lokale SpeechEngine verarbeitet die vollständige Monoaufnahme mit 16 kHz ei
 Die App merkt sich beim Start das Zielfenster. Während der Erkennung bleibt die Oberfläche bedienbar. Vor dem Einfügen speichert die App den neuen Text im Arbeitsspeicher und prüft das Ziel erneut. Stille, ein Abbruch oder ein Erkennungsfehler lassen das letzte erfolgreiche Ergebnis erhalten. Nach einem Einfügefehler kann man es im Overlay kopieren oder in einem neu gewählten Textfeld per Kürzel oder Tray erneut einfügen. Beim Beenden verfällt dieser Speicher.
 
 Die Leerlaufmessung verwendet denselben Startweg wie das Diktat. Der Marker `QMS_READY` belegt jetzt den aufgebauten Tray, die registrierten globalen Kürzel und die laufende Ereignisschleife. Die Initialisierung des Mikrofontreibers läuft auf einem eigenen Thread. Die Erkennung läuft erst nach einem Diktat.
+
+## Schreibweise beim deutschen Diktat · Schritt 2.5
+
+Die Desktop-App korrigiert sechs mit primeLine reproduzierte Doppel-s-Schreibweisen unmittelbar nach der Erkennung. So erhalten das erste Einfügen, das erneute Einfügen und die Wiederherstellung aus dem Arbeitsspeicher denselben Text. Die Wortliste ist auf die belegten Formen in Klein- und Anfangsgroßschreibung begrenzt. Ein allgemeiner Austausch würde Wörter wie „muss“ verfälschen. Der ASR-Benchmark misst weiterhin die direkte Modellausgabe. [Einfüge-Matrix und Nachtest](../../tests/inject-matrix.md)
