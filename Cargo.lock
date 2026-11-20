@@ -3307,6 +3307,10 @@ version = "0.1.0"
 [[package]]
 name = "quatsch-mit-sosse-hotkey"
 version = "0.1.0"
+dependencies = [
+ "toml 0.8.2",
+ "windows",
+]
 
 [[package]]
 name = "quatsch-mit-sosse-inject"

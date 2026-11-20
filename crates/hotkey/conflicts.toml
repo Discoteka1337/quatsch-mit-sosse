@@ -1,0 +1,33 @@
+# Common default keyboard shortcuts in Windows and Microsoft Office for Windows.
+# https://support.microsoft.com/de-de/accessibility/windows/keyboard-shortcuts-in-windows
+# https://support.microsoft.com/de-de/accessibility/word/keyboard-shortcuts-in-word
+# https://support.microsoft.com/de-de/accessibility/excel/keyboard-shortcuts-in-excel
+"Alt+Tab" = "Windows wechselt zur nächsten Anwendung."
+"Alt+F4" = "Windows schließt das aktive Fenster."
+"Strg+Alt+Entf" = "Windows öffnet den Sicherheitsbildschirm."
+"Strg+Esc" = "Windows öffnet das Startmenü."
+"Strg+Umschalt+Esc" = "Windows öffnet den Task-Manager."
+"Win+D" = "Windows zeigt den Desktop an."
+"Win+E" = "Windows öffnet den Datei-Explorer."
+"Win+H" = "Windows startet die Spracheingabe."
+"Win+I" = "Windows öffnet die Einstellungen."
+"Win+L" = "Windows sperrt den PC."
+"Win+R" = "Windows öffnet den Dialog „Ausführen“."
+"Win+S" = "Windows öffnet die Suche."
+"Win+Tab" = "Windows öffnet die Aufgabenansicht."
+"Win+V" = "Windows öffnet den Zwischenablageverlauf."
+"Win+Leertaste" = "Windows wechselt die Eingabesprache."
+"Umschalt+Win+S" = "Windows startet das Ausschneiden eines Bildschirmausschnitts."
+"Strg+Win+Q" = "Windows öffnet die Schnellhilfe."
+
+"Strg+A" = "Office markiert den Inhalt."
+"Strg+C" = "Office kopiert die Auswahl."
+"Strg+N" = "Office erstellt eine neue Datei."
+"Strg+O" = "Office öffnet eine Datei."
+"Strg+P" = "Office öffnet die Druckansicht."
+"Strg+S" = "Office speichert die Datei."
+"Strg+V" = "Office fügt den Inhalt der Zwischenablage ein."
+"Strg+W" = "Office schließt die Datei."
+"Strg+X" = "Office schneidet die Auswahl aus."
+"Strg+Z" = "Office macht die letzte Änderung rückgängig."
+"Strg+Umschalt+Leertaste" = "Word fügt ein geschütztes Leerzeichen ein. Excel markiert den aktuellen Bereich oder das Arbeitsblatt."
