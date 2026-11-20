@@ -2,7 +2,7 @@
 
 Deutsche, offline-first Diktier-App für Windows 11. Geplant sind lokale Spracherkennung und Textbereinigung sowie optionale, ausdrücklich aktivierte KI-Anbieter. Die Desktop-App verwendet Tauri 2, Rust und native Windows-Steuerelemente. Das Svelte-/TypeScript-Gerüst bleibt separat erhalten.
 
-**Status: Schritt 1.5 – Benchmark und Modellentscheidung.** `tools/bench` vergleicht installierte ASR-Modelle anhand des privaten Korpus und erstellt einen Bericht ohne Satztexte. Der Recorder führt durch 40 deutsche Diktate und zehn Aufnahmen ohne Sprache. WASAPI-Aufnahmen mit 16 kHz mono können lokal mit beiden Parakeet-Modellen oder Whisper erkannt werden. Silero erkennt Sprachabschnitte; lange Aufnahmen werden an Pausen in höchstens 20 Sekunden lange Stücke geteilt. Modelle laden erst bei Bedarf und werden nach standardmäßig fünf Minuten Leerlauf automatisch entladen. Aufnahme, Modellverwaltung und Erkennung sind über Kommandozeilenprogramme nutzbar; die Verbindung mit Tray und Hotkey folgt in späteren Schritten.
+**Stand Schritt 1.6 – Phantomtexte und Satzanfänge.** Meldet Silero keine Sprache, liefert die Engine sofort leeren Text. Vor dem ersten Sprachabschnitt bleiben bis zu 500 ms der Aufnahme erhalten. Der Nachfilter verwirft ein Diktat, wenn sein gesamter Text einer Floskel aus der [Sperrliste](crates/stt/phantoms.txt) entspricht. `tools/bench` prüft Stille und erste Wörter im privaten Korpus. Der Recorder führt durch 40 deutsche Diktate und zehn Aufnahmen ohne Sprache. WASAPI-Aufnahmen mit 16 kHz mono können lokal mit beiden Parakeet-Modellen oder Whisper erkannt werden. Lange Aufnahmen werden an Pausen in höchstens 20 Sekunden lange Stücke geteilt. Modelle laden erst bei Bedarf und werden nach standardmäßig fünf Minuten Leerlauf automatisch entladen. Aufnahme, Modellverwaltung und Erkennung sind über Kommandozeilenprogramme nutzbar. Die Verbindung mit Tray und Hotkey folgt in späteren Schritten.
 
 **WebView2-Diagnostikpfad entfernt.** Einstellungen und Overlay sind native Fenster; die App startet weder WebView2 noch dessen SDK-Versionsabfrage. Dafür wird eine eng begrenzte, geprüfte Tauri-Abhängigkeitskorrektur verwendet. Entscheidung, Tests und Wartung stehen in [Entscheidung 0006](docs/decisions/0006-native-fenster-ohne-webview2.md). Systemweite Windows-Diagnostik wird dadurch nicht verändert.
 
@@ -219,10 +219,19 @@ Satztexte, Audio und Tokenlisten werden weder im Terminal noch im Bericht oder
 in temporären Messdateien ausgegeben. Der private Korpus bleibt unverändert.
 Die Modellentscheidung steht in
 [0001-standardmodell.md](docs/decisions/0001-standardmodell.md).
-Manuell prüfen: Auffällige Aufnahmen anhand ihrer Nummer lokal anhören und
-Referenzen mit dem tatsächlich Gesprochenen vergleichen; anschließend die
-Modellentscheidung lesen. Die zusätzlichen Schutz- und Wortanfangstests aus
-Schritt 1.6 sind noch nicht vorgesehen.
+Für die Abnahme von Schritt 1.6 kann der neue Bericht getrennt vom
+veröffentlichten Modellvergleich in einem lokalen Ordner gespeichert werden.
+
+```powershell
+cargo run --locked --offline --release --package bench -- --check-protection --output "$env:TEMP\qms-asr-1-6"
+```
+
+Der Bericht enthält das Ergebnis für jede Aufnahme mit leerer Referenz und
+die Trefferzahl für das erste Wort der ersten 20 Sprachreferenzen nach Nummer.
+Die Abnahme liefert nach dem Schreiben des Berichts Exitcode 1, falls ein
+gemessenes Modell eines der beiden Ziele verfehlt oder Daten für die Prüfung fehlen.
+Zum Nachprüfen die aufgeführten Fehlernummern lokal anhören und mit dem ersten
+Wort der jeweiligen TXT-Referenz vergleichen.
 
 ## Leerlauf und Startzeit messen
 

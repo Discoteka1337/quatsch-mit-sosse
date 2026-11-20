@@ -1,7 +1,36 @@
-use std::{fs::File, io::BufReader, path::PathBuf};
+use std::{
+    fs::{self, File},
+    io::BufReader,
+    path::PathBuf,
+};
 
 use quatsch_mit_sosse_models::Manager;
 use quatsch_mit_sosse_stt::{EngineConfig, create_engine};
+
+#[test]
+#[ignore = "Benötigt lokal installiertes silero-vad."]
+fn silence_skips_recognition_without_an_asr_model() {
+    let installed = Manager::new()
+        .unwrap()
+        .path_of("silero-vad")
+        .unwrap()
+        .expect("silero-vad muss installiert sein.");
+    let temporary = tempfile::tempdir().unwrap();
+    let vad_directory = temporary.path().join("silero-vad");
+    fs::create_dir(&vad_directory).unwrap();
+    for filename in [".installed.json", "silero_vad.onnx"] {
+        fs::copy(installed.join(filename), vad_directory.join(filename)).unwrap();
+    }
+
+    let samples = vec![0.0; 32_000];
+    for id in ["parakeet-primeline-de-int8", "whisper-large-v3-turbo"] {
+        let manager = Manager::with_root(temporary.path().to_owned()).unwrap();
+        assert!(!manager.is_installed(id).unwrap());
+        let mut engine = create_engine(manager, id, EngineConfig::default()).unwrap();
+        let transcript = engine.transcribe(&samples, 16_000, Some("de")).unwrap();
+        assert!(transcript.text.is_empty());
+    }
+}
 
 fn transcribe_installed_model(model_id: &str) {
     let manager = Manager::new().expect("Der lokale Modellordner muss verfügbar sein.");

@@ -2,6 +2,7 @@ mod chunks;
 mod engine;
 mod idle;
 mod onnx;
+mod phantoms;
 
 use std::time::Duration;
 

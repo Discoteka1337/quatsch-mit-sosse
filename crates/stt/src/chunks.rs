@@ -1,10 +1,24 @@
 use std::ops::Range;
 
-use quatsch_mit_sosse_vad::SpeechSegment;
+use quatsch_mit_sosse_vad::{SAMPLE_RATE, SpeechSegment};
 
 use crate::{Error, Result};
 
 pub const MAX_CHUNK_SECONDS: u32 = 20;
+
+pub(super) fn recognition_chunks(
+    segments: &[SpeechSegment],
+    sample_count: usize,
+) -> Result<Vec<Range<usize>>> {
+    let mut chunks = split_at_pauses(segments, sample_count, SAMPLE_RATE)?;
+    if let Some(first) = chunks.first_mut() {
+        // Silero already retains 100 ms. Extra context must fit without a new cut.
+        let extra_onset_samples = SAMPLE_RATE as usize * 400 / 1_000;
+        let room = (MAX_CHUNK_SECONDS * SAMPLE_RATE) as usize - first.len();
+        first.start = first.start.saturating_sub(extra_onset_samples.min(room));
+    }
+    Ok(chunks)
+}
 
 /// Returns half-open sample ranges, retaining short internal pauses.
 /// A continuous speech interval is cut at the limit only when no pause exists.
@@ -75,6 +89,9 @@ pub(crate) fn recognize_chunks(
             }
             text.push_str(part);
         }
+    }
+    if crate::phantoms::is_phantom(&text) {
+        text.clear();
     }
     Ok(text)
 }

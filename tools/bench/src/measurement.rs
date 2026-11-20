@@ -13,6 +13,7 @@ pub struct SampleMetrics {
     pub insertions: usize,
     pub silence: bool,
     pub phantom: bool,
+    pub first_word_matches: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,7 +40,7 @@ pub fn measure(
     recordings: &[Recording],
     engine: &mut dyn SpeechEngine,
 ) -> Result<ModelResult, &'static str> {
-    use crate::metrics::word_errors;
+    use crate::metrics::compare_words;
     use std::time::Instant;
 
     let first = recordings
@@ -75,7 +76,7 @@ pub fn measure(
             .transcribe(&recording.samples, 16_000, Some("de"))
             .map_err(|_| "Die lokale Erkennung einer Korpusaufnahme ist fehlgeschlagen.")?;
         let latency_seconds = started.elapsed().as_secs_f64();
-        let errors = word_errors(&recording.reference, &transcript.text);
+        let (errors, first_word_matches) = compare_words(&recording.reference, &transcript.text);
         let silence = recording.reference.trim().is_empty();
         samples.push(SampleMetrics {
             id: recording.id,
@@ -86,7 +87,8 @@ pub fn measure(
             deletions: errors.deletions,
             insertions: errors.insertions,
             silence,
-            phantom: silence && !transcript.text.trim().is_empty(),
+            phantom: silence && !transcript.text.is_empty(),
+            first_word_matches,
         });
     }
     let mut probes = Vec::new();

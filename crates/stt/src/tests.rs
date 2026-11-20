@@ -25,6 +25,25 @@ fn no_speech_produces_no_chunks() {
 }
 
 #[test]
+fn recognition_keeps_extra_onset_context_only_before_the_first_speech_segment() {
+    let chunks =
+        chunks::recognition_chunks(&[speech(8_000, 16_000), speech(400_000, 408_000)], 408_000)
+            .unwrap();
+    assert_eq!(chunks, vec![1_600..16_000, 400_000..408_000]);
+    assert!(chunks::recognition_chunks(&[], 16_000).unwrap().is_empty());
+}
+
+#[test]
+fn onset_context_stops_at_the_recording_start_and_never_forces_an_extra_split() {
+    let near_start = chunks::recognition_chunks(&[speech(2_000, 10_000)], 10_000).unwrap();
+    assert_eq!(near_start, vec![0..10_000]);
+    let near_limit = chunks::recognition_chunks(&[speech(2_000, 321_000)], 321_000).unwrap();
+    assert_eq!(near_limit, vec![1_000..321_000]);
+    let full = chunks::recognition_chunks(&[speech(2_000, 322_000)], 322_000).unwrap();
+    assert_eq!(full, vec![2_000..322_000]);
+}
+
+#[test]
 fn short_speech_keeps_internal_pauses_and_trims_outer_silence() {
     assert_eq!(
         split_at_pauses(&[speech(10, 70), speech(80, 130)], 150, 10).unwrap(),
@@ -229,4 +248,43 @@ fn recognition_is_sequential_and_stops_on_error() {
         .is_err()
     );
     assert_eq!(count, 1);
+}
+
+fn join_recognition(parts: &[&str]) -> String {
+    let samples = vec![0.0; parts.len()];
+    let chunks = (0..parts.len()).map(|i| i..i + 1).collect::<Vec<_>>();
+    let mut parts = parts.iter();
+    recognize_chunks(&samples, &chunks, |_| Ok(parts.next().unwrap().to_string())).unwrap()
+}
+
+#[test]
+fn no_vad_chunks_never_call_the_recognizer() {
+    let text = recognize_chunks(&[0.1; 512], &[], |_| panic!("unexpected ASR call")).unwrap();
+    assert!(text.is_empty());
+}
+
+#[test]
+fn removes_only_complete_phantoms_after_joining_all_chunks() {
+    for parts in [
+        vec!["Vielen Dank", "fu\u{308}rs Zuschauen!"],
+        vec!["„VIELEN  DANK\tFÜRS ZUSCHAUEN!“"],
+        vec!["", "Untertitel der Amara.org-Community.", ""],
+        vec!["Untertitel im Auftrag des ZDF für funk"],
+    ] {
+        assert!(join_recognition(&parts).is_empty());
+    }
+}
+
+#[test]
+fn preserves_extra_words_symbols_and_original_spelling_around_phantoms() {
+    for parts in [
+        vec!["Vielen Dank fürs Zuschauen!", "Bis morgen."],
+        vec!["Bitte schreibe:", "Vielen Dank fürs Zuschauen!"],
+        vec!["Vielen Dank fürs Zuschauen und Zuhören."],
+        vec!["Vielen Dank fürs Zuschauen +"],
+        vec!["VIELEN   DANK für die Hilfe!"],
+        vec!["Untertitel"],
+    ] {
+        assert_eq!(join_recognition(&parts), parts.join(" "));
+    }
 }

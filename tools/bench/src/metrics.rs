@@ -34,8 +34,16 @@ pub fn normalize_words(text: &str) -> Vec<String> {
 }
 
 pub fn word_errors(reference: &str, hypothesis: &str) -> WordErrors {
+    compare_words(reference, hypothesis).0
+}
+
+pub(crate) fn compare_words(reference: &str, hypothesis: &str) -> (WordErrors, bool) {
     let reference = normalize_words(reference);
     let hypothesis = normalize_words(hypothesis);
+    let first_word_matches = reference
+        .first()
+        .zip(hypothesis.first())
+        .is_some_and(|(expected, actual)| expected == actual);
     // Carry edit counts along the minimum-cost alignment using only two rows.
     // Equal-cost paths prefer substitution, then deletion, then insertion.
     let mut previous: Vec<_> = (0..=hypothesis.len())
@@ -66,7 +74,7 @@ pub fn word_errors(reference: &str, hypothesis: &str) -> WordErrors {
     }
     let mut result = previous[hypothesis.len()];
     result.reference_words = reference.len();
-    result
+    (result, first_word_matches)
 }
 
 #[cfg(test)]

@@ -82,8 +82,8 @@ Aufnahmenummern und Messwerte. Der private Korpus wurde nicht verändert.
   einschließlich eingelesenem Korpus und Modellladen. Sie ist kein
   Leerlaufwert der Desktop-App.
 - 0 Phantomtexte gelten für die aktuelle Pipeline mit VAD. Ein separater
-  Rohmodelltest wurde nicht durchgeführt. Die zusätzlichen Schutz- und
-  Wortanfangstests aus Schritt 1.6 sind **noch nicht vorgesehen**.
+  Rohmodelltest wurde in Schritt 1.5 nicht durchgeführt. Die spätere Abnahme
+  der Satzanfänge und des Nachfilters steht im Nachtrag zum Benchmark-Bericht.
 
 ## Reproduktion und Prüfungen
 
@@ -112,3 +112,23 @@ Benchmark verwendet. Zusätzlich wurden die 50 Aufnahmezeilen und
 37 Probezeilen je Modell, die WER-Summen und das Fehlen vollständiger
 privater Referenztexte in den öffentlichen Dokumenten geprüft. Private
 Korpusdateien bleiben ignoriert und fehlen im Git-Index.
+
+## Nachtrag zu Schritt 1.6
+
+Für den Wortanfangstest gelten die ersten 20 Sprachreferenzen nach
+Aufnahmenummer. Diese Auswahl stand vor dem Vergleich fest und schließt die
+bereits in Schritt 1.5 auffälligen Aufnahmen ein. Alle leeren Referenzen
+gehen in die Stilleprüfung ein.
+
+Der Erkenner erhält am ersten von Silero gemeldeten Sprachbeginn bis zu
+500 ms Vorlauf aus der Aufnahme. Vor dem bisherigen 100-ms-Rand kommen bis
+zu 400 ms hinzu, soweit sie in das erste Stück von höchstens 20 Sekunden
+passen. So bleibt ein knapp 20 Sekunden langer Satz für die Erkennung
+zusammenhängend. Der Nachfilter vergleicht erst den zusammengesetzten
+Text, damit eine eigenständig erkannte Floskel innerhalb eines längeren
+Diktats erhalten bleibt.
+
+Nach der Hörprüfung von 002–006 wurde der Stand mit 15 von 20 korrekten
+Satzanfängen beim Standardmodell für den Commit freigegeben. Für künftige
+Abnahmeläufe gilt weiterhin das Ziel von 20 von 20. Messwerte und Hörbefund
+stehen im [Benchmark-Bericht](../benchmarks/asr-2026-11-20.md#schritt-16--stille-und-satzanfänge).

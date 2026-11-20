@@ -3349,6 +3349,7 @@ name = "quatsch-mit-sosse-stt"
 version = "0.1.0"
 dependencies = [
  "hound",
+ "icu_normalizer",
  "quatsch-mit-sosse-models",
  "quatsch-mit-sosse-vad",
  "sherpa-rs",

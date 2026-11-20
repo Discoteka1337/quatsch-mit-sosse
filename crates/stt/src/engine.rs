@@ -1,15 +1,15 @@
 use std::{path::Path, time::Instant};
 
 use quatsch_mit_sosse_models::{Manager, Model};
-use quatsch_mit_sosse_vad::{SileroVad, VadConfig};
+use quatsch_mit_sosse_vad::{SAMPLE_RATE, SileroVad, VadConfig};
 use sherpa_rs::{
     transducer::{TransducerConfig, TransducerRecognizer},
     whisper::{WhisperConfig, WhisperRecognizer},
 };
 
 use crate::{
-    EngineConfig, Error, Result, SpeechEngine, Transcript, idle::IdleModel, recognize_chunks,
-    split_at_pauses,
+    EngineConfig, Error, Result, SpeechEngine, Transcript, chunks::recognition_chunks,
+    idle::IdleModel, recognize_chunks,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -83,7 +83,7 @@ impl Engine {
         language_hint: Option<&str>,
     ) -> Result<Transcript> {
         let started = Instant::now();
-        if sample_rate != 16_000
+        if sample_rate != SAMPLE_RATE
             || samples.len() > i32::MAX as usize
             || samples
                 .iter()
@@ -127,7 +127,7 @@ impl Engine {
                     .vad
                     .speech_segments(samples, sample_rate)
                     .map_err(|_| Error::Vad)?;
-                let chunks = split_at_pauses(&segments, samples.len(), sample_rate)?;
+                let chunks = recognition_chunks(&segments, samples.len())?;
                 if chunks.is_empty() {
                     return Ok(String::new());
                 }

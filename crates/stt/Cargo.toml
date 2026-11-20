@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+icu_normalizer = { version = "2.4.0", default-features = false, features = ["compiled_data", "utf8_iter"] }
 quatsch-mit-sosse-models = { path = "../models" }
 quatsch-mit-sosse-vad = { path = "../vad" }
 sherpa-rs.workspace = true

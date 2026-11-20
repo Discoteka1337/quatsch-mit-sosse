@@ -120,9 +120,100 @@ pub fn render_report(context: &ReportContext, results: &[ModelResult]) -> String
     for result in results {
         render_model(&mut report, result);
     }
+    render_protection_checks(&mut report, results);
     report.truncate(report.trim_end_matches('\n').len());
     report.push('\n');
     report
+}
+
+const SENTENCES: usize = 20;
+
+#[derive(Default)]
+pub struct ProtectionChecks {
+    silences: usize,
+    sentences: usize,
+    phantoms: Vec<u16>,
+    wrong_first_words: Vec<u16>,
+}
+
+impl ProtectionChecks {
+    fn silence_passed(&self) -> Option<bool> {
+        (self.silences > 0).then_some(self.phantoms.is_empty())
+    }
+
+    fn first_words_passed(&self) -> Option<bool> {
+        (self.sentences == SENTENCES).then_some(self.wrong_first_words.is_empty())
+    }
+
+    pub fn passed(&self) -> bool {
+        self.silence_passed() == Some(true) && self.first_words_passed() == Some(true)
+    }
+}
+
+pub fn protection_checks(model: &ModelResult) -> ProtectionChecks {
+    let mut ordered: Vec<_> = model.samples.iter().collect();
+    ordered.sort_unstable_by_key(|sample| sample.id);
+    let mut checks = ProtectionChecks::default();
+    for sample in ordered {
+        if sample.silence {
+            checks.silences += 1;
+            if sample.phantom {
+                checks.phantoms.push(sample.id);
+            }
+        } else if checks.sentences < SENTENCES {
+            checks.sentences += 1;
+            if !sample.first_word_matches {
+                checks.wrong_first_words.push(sample.id);
+            }
+        }
+    }
+    checks
+}
+
+fn render_protection_checks(report: &mut String, results: &[ModelResult]) {
+    report.push_str(&format!(
+        "## Schritt 1.6 · Stille und Satzanfänge\n\n\
+         Geprüft werden alle Aufnahmen mit leerer Referenz. Jede Ausgabe mit mindestens einem Zeichen zählt als Phantomtext. \
+         Für die Satzanfänge zählen die ersten {SENTENCES} vollständigen Aufnahmen mit Sprachreferenz in aufsteigender Aufnahmenummer. \
+         Das erste Wort der Ausgabe muss nach derselben Normalisierung wie bei der WER mit dem ersten Referenzwort übereinstimmen. \
+         Eine leere Ausgabe oder ein abweichendes erstes Wort zählt als Fehler. \
+         Das Stilleziel verlangt mindestens eine Stille-Aufnahme und null Phantomtexte. Das Ziel für die Satzanfänge liegt bei {SENTENCES} von {SENTENCES}.\n\n\
+         | Modell | Phantomtexte / Stille-Aufnahmen | Fehler-Nr. Stille | Stilleziel | Erstes Wort erhalten / geprüfte Sätze | Fehler-Nr. Satzanfang | Ziel für Satzanfänge |\n\
+         | --- | ---: | --- | --- | ---: | --- | --- |\n"
+    ));
+    for model in results {
+        let checks = protection_checks(model);
+        report.push_str(&format!(
+            "| {} | {} / {} | {} | {} | {} / {} | {} | {} |\n",
+            escape(&model.model_id),
+            checks.phantoms.len(),
+            checks.silences,
+            format_ids(&checks.phantoms),
+            format_verdict(checks.silence_passed()),
+            checks.sentences - checks.wrong_first_words.len(),
+            checks.sentences,
+            format_ids(&checks.wrong_first_words),
+            format_verdict(checks.first_words_passed()),
+        ));
+    }
+}
+
+fn format_verdict(passed: Option<bool>) -> &'static str {
+    match passed {
+        Some(true) => "bestanden",
+        Some(false) => "nicht bestanden",
+        None => "unvollständig",
+    }
+}
+
+fn format_ids(ids: &[u16]) -> String {
+    if ids.is_empty() {
+        return "—".into();
+    }
+    ids.iter()
+        .map(|id| format!("{id:03}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 pub fn select_models(results: &[ModelResult]) -> (Option<&ModelResult>, Option<&ModelResult>) {
@@ -408,6 +499,7 @@ mod tests {
                 insertions: 0,
                 silence: false,
                 phantom: false,
+                first_word_matches: true,
             }],
             probes: vec![Probe {
                 id: 1,
@@ -536,6 +628,7 @@ mod tests {
             insertions: 0,
             silence: false,
             phantom: false,
+            first_word_matches: true,
         });
         model.samples.push(SampleMetrics {
             id: 41,
@@ -547,6 +640,7 @@ mod tests {
             insertions: 3,
             silence: true,
             phantom: true,
+            first_word_matches: false,
         });
         let report = render_report(&context(), &[model]);
         for expected in [

@@ -1,7 +1,7 @@
 use bench::{
     corpus::load_corpus,
     measurement::{ModelResult, measure},
-    report::{ReportContext, render_report},
+    report::{ReportContext, protection_checks, render_report},
 };
 use quatsch_mit_sosse_models::{Manager, ModelKind};
 use quatsch_mit_sosse_stt::{EngineConfig, create_engine};
@@ -19,6 +19,7 @@ struct Options {
     threads: u32,
     corpus: PathBuf,
     output: PathBuf,
+    check_protection: bool,
 }
 
 fn parse_options(args: &[OsString]) -> Result<Options, &'static str> {
@@ -28,15 +29,22 @@ fn parse_options(args: &[OsString]) -> Result<Options, &'static str> {
         threads: EngineConfig::default().num_threads,
         corpus: root.join("testdata/private/corpus"),
         output: root.join("docs/benchmarks"),
+        check_protection: false,
     };
     let mut seen = std::collections::HashSet::new();
-    for pair in args.chunks(2) {
-        let [flag, value] = pair else {
-            return Err("Jede Option benötigt einen Wert; Hilfe: --help.");
-        };
-        if value.is_empty() || !seen.insert(flag) {
-            return Err("Leere oder doppelte Option; Hilfe: --help.");
+    let mut args = args.iter();
+    while let Some(flag) = args.next() {
+        if !seen.insert(flag) {
+            return Err("Eine Option wurde mehrfach angegeben.");
         }
+        if flag == "--check-protection" {
+            options.check_protection = true;
+            continue;
+        }
+        let value = args
+            .next()
+            .filter(|value| !value.is_empty() && *value != "--check-protection")
+            .ok_or("Für eine Option fehlt der Wert.")?;
         match flag.to_str() {
             Some("--date") => {
                 let date = value
@@ -83,10 +91,11 @@ fn run() -> Result<(), &'static str> {
     if args == [OsString::from("--help")] || args == [OsString::from("-h")] {
         println!(
             "Lokaler ASR-Benchmark\n\
-            Aufruf: cargo run --release -p bench -- [--date JJJJ-MM-TT] [--threads N] [--corpus ORDNER] [--output ORDNER]\n\
+            Aufruf: cargo run --release -p bench -- [--date JJJJ-MM-TT] [--threads N] [--corpus ORDNER] [--output ORDNER] [--check-protection]\n\
             Standard: privater Projektkorpus, docs/benchmarks, lokales Tagesdatum und 2 Threads.\n\
             Misst alle vollständig installierten ASR-Modelle mit Silero-VAD, ohne Downloads.\n\
-            Der Tagesbericht wird atomar ersetzt. Satztexte und Audio werden nie ausgegeben."
+            Der Tagesbericht wird atomar ersetzt. Satztexte und Audio werden nie ausgegeben.\n\
+            --check-protection meldet nach dem Schreiben des Berichts Exitcode 1, wenn ein gemessenes Modell die Ziele für Stille oder Satzanfänge verfehlt oder die Stichprobe unvollständig ist."
         );
         return Ok(());
     }
@@ -193,6 +202,15 @@ fn run() -> Result<(), &'static str> {
         .persist(path)
         .map_err(|_| "Der Bericht konnte nicht bereitgestellt werden.")?;
     println!("Benchmark abgeschlossen. Bericht: asr-{}.md", options.date);
+    if options.check_protection
+        && results
+            .iter()
+            .any(|model| !protection_checks(model).passed())
+    {
+        return Err(
+            "Die Prüfung von Stille und Satzanfängen ist im Benchmark-Bericht ausgewertet. Mindestens ein Modell hat die Abnahme verfehlt.",
+        );
+    }
     Ok(())
 }
 
@@ -245,6 +263,20 @@ mod tests {
 
     fn args(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn protection_check_is_an_optional_flag_without_a_value() {
+        for flags in [
+            vec!["--check-protection"],
+            vec!["--check-protection", "--threads", "2"],
+            vec!["--threads", "2", "--check-protection"],
+        ] {
+            assert!(parse_options(&args(&flags)).unwrap().check_protection);
+        }
+        assert!(parse_options(&args(&["--check-protection", "--check-protection"])).is_err());
+        assert!(parse_options(&args(&["--output", "--check-protection"])).is_err());
+        assert!(!parse_options(&[]).unwrap().check_protection);
     }
 
     #[test]
