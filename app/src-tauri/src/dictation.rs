@@ -39,9 +39,9 @@ impl<P: Ports> Session<P> {
         }
     }
 
-    fn start(&mut self, target: Option<P::Target>) {
+    fn start(&mut self, target: Option<P::Target>) -> bool {
         if !matches!(self.phase, Phase::Idle) {
-            return;
+            return false;
         }
         let result = (|| {
             let Some(model) = self.ports.installed()? else {
@@ -59,6 +59,7 @@ impl<P: Ports> Session<P> {
         if let Err(message) = result {
             self.error(message);
         }
+        matches!(self.phase, Phase::Recording { .. })
     }
 
     fn level(&mut self, level: u8) {

@@ -18,7 +18,7 @@
   <main class="settings">
     <p class="app-name">{messages.appName}</p>
     <h1>{messages.settings}</h1>
-    <p class="placeholder">{messages.settingsPlaceholder}</p>
+    <p class="placeholder">{messages.generalTitle}</p>
   </main>
 {/if}
 

@@ -105,18 +105,40 @@ fn credits_include_the_selected_asr_and_silero_from_the_manifest() {
 #[test]
 fn only_missing_components_are_offered_for_download() {
     use crate::speech::FALLBACK_MODEL;
-    assert_eq!(missing_ids(None, false), [DEFAULT_MODEL, VAD_MODEL]);
-    assert_eq!(missing_ids(None, true), [DEFAULT_MODEL]);
-    assert_eq!(missing_ids(Some(DEFAULT_MODEL), false), [VAD_MODEL]);
-    assert_eq!(missing_ids(Some(FALLBACK_MODEL), false), [VAD_MODEL]);
-    assert!(missing_ids(Some(FALLBACK_MODEL), true).is_empty());
+    assert_eq!(
+        required_ids(None, |_| Ok(false)).unwrap(),
+        [DEFAULT_MODEL, VAD_MODEL]
+    );
+    assert_eq!(
+        required_ids(None, |id| Ok(id == VAD_MODEL)).unwrap(),
+        [DEFAULT_MODEL]
+    );
+    for asr in [DEFAULT_MODEL, FALLBACK_MODEL] {
+        assert_eq!(required_ids(None, |id| Ok(id == asr)).unwrap(), [VAD_MODEL]);
+        assert!(
+            required_ids(None, |id| Ok(id == asr || id == VAD_MODEL))
+                .unwrap()
+                .is_empty()
+        );
+    }
+}
+
+#[test]
+fn an_explicit_selection_offers_that_model_even_when_an_alternative_exists() {
+    use crate::speech::FALLBACK_MODEL;
+    let installed = |id: &str| Ok(id == DEFAULT_MODEL || id == VAD_MODEL);
+    assert_eq!(
+        required_ids(Some(FALLBACK_MODEL), installed).unwrap(),
+        [FALLBACK_MODEL]
+    );
+    assert!(required_ids(None, installed).unwrap().is_empty());
 }
 
 #[test]
 fn opening_an_empty_store_lists_the_required_models_without_installing() {
     let root = tempfile::tempdir().unwrap();
     let manager = Models::with_root(root.path().join("models")).unwrap();
-    let prompt = inspect(&manager).unwrap();
+    let prompt = inspect(&manager, None).unwrap();
     assert!(prompt.can_install());
     assert!(prompt.text.contains("primeLine"));
     assert!(prompt.text.contains("Silero"));

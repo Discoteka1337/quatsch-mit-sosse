@@ -71,6 +71,7 @@ impl OverlayState {
 
 struct Model {
     store: OverlayStore,
+    preferences: OverlayPreferences,
     state: OverlayState,
     copy_failed: bool,
 }
@@ -78,16 +79,17 @@ struct Model {
 impl Model {
     fn view(&self) -> View {
         self.state
-            .view(self.store.preferences().show_ready, self.copy_failed)
+            .view(self.preferences.show_ready, self.copy_failed)
     }
 }
 
 pub(super) struct Controller(Mutex<Model>);
 
 impl Controller {
-    pub(super) fn open() -> io::Result<Self> {
+    pub(super) fn open(preferences: OverlayPreferences) -> io::Result<Self> {
         Ok(Self(Mutex::new(Model {
             store: OverlayStore::open()?,
+            preferences,
             state: OverlayState::Ready,
             copy_failed: false,
         })))
@@ -148,43 +150,31 @@ fn remember_location(app: &AppHandle) -> tauri::Result<()> {
     refresh_location(app)
 }
 
-pub(super) fn preferences(app: &AppHandle) -> io::Result<OverlayPreferences> {
-    model(app, |m| Ok(m.store.preferences()))
-}
-
-pub(super) fn toggle_preference(app: &AppHandle, ready: bool) -> tauri::Result<bool> {
+pub(super) fn apply_preferences(app: &AppHandle, new: OverlayPreferences) -> tauri::Result<()> {
     let hwnd = hwnd(app)?;
-    let old = preferences(app)?;
-    let mut new = old;
-    let checked = if ready {
-        &mut new.show_ready
-    } else {
-        &mut new.hide_from_capture
-    };
-    *checked = !*checked;
-    let checked = *checked;
-
-    let apply = |options: OverlayPreferences| -> tauri::Result<()> {
-        if ready {
-            let view = model(app, |m| Ok(m.state.view(options.show_ready, m.copy_failed)))?;
-            present(app, hwnd, view, false)
-        } else {
-            overlay_window::set_capture_hidden(hwnd, options.hide_from_capture)
-                .map_err(io::Error::other)?;
-            Ok(())
-        }
-    };
-    apply(new)?;
-    if let Err(error) = model(app, |m| m.store.set_preferences(new)) {
-        apply(old)?;
-        return Err(error.into());
+    let old = model(app, |m| Ok(m.preferences))?;
+    if old.hide_from_capture != new.hide_from_capture {
+        overlay_window::set_capture_hidden(hwnd, new.hide_from_capture)
+            .map_err(io::Error::other)?;
     }
-    Ok(checked)
+    if old.show_ready != new.show_ready {
+        let view = model(app, |m| Ok(m.state.view(new.show_ready, m.copy_failed)))?;
+        if let Err(error) = present(app, hwnd, view, false) {
+            overlay_window::set_capture_hidden(hwnd, old.hide_from_capture)
+                .map_err(io::Error::other)?;
+            return Err(error);
+        }
+    }
+    model(app, |m| {
+        m.preferences = new;
+        Ok(())
+    })?;
+    Ok(())
 }
 
 fn update(app: &AppHandle, next: OverlayState) -> tauri::Result<()> {
     let (view, resize) = model(app, |m| {
-        let view = next.view(m.store.preferences().show_ready, false);
+        let view = next.view(m.preferences.show_ready, false);
         let resize = m.view().logical_size() != view.logical_size();
         Ok((view, resize))
     })?;
@@ -247,7 +237,7 @@ pub(super) fn attach(window: &Window) -> tauri::Result<()> {
         },
     )
     .map_err(io::Error::other)?;
-    if preferences(app)?.hide_from_capture {
+    if model(app, |m| Ok(m.preferences.hide_from_capture))? {
         overlay_window::set_capture_hidden(hwnd, true).map_err(io::Error::other)?;
     }
     refresh_location(app)

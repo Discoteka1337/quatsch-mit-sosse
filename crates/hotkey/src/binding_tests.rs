@@ -86,3 +86,24 @@ fn every_published_conflict_uses_a_canonical_supported_chord() {
         assert!(!description.trim().is_empty());
     }
 }
+#[test]
+fn recorded_chords_round_trip_through_the_existing_parser() {
+    for (ctrl, shift, alt, win, trigger, expected) in [
+        (
+            true,
+            true,
+            false,
+            false,
+            Some(0x20),
+            Some("Strg+Umschalt+Leertaste"),
+        ),
+        (false, false, false, true, Some(0x87), Some("Win+F24")),
+        (false, false, true, false, None, Some("Alt")),
+        (false, false, false, false, Some(0x41), Some("A")),
+        (false, false, false, false, None, None),
+        (true, false, false, false, Some(0xff), None),
+    ] {
+        let recorded = Hotkey::from_virtual_keys(ctrl, shift, alt, win, trigger);
+        assert_eq!(recorded, expected.map(|text| text.parse().unwrap()));
+    }
+}

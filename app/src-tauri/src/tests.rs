@@ -74,7 +74,6 @@ fn native_texts_come_from_the_shared_german_catalog() {
         let locale: Messages = serde_json::from_str(source).unwrap();
         assert!(!locale.settings_open_error.is_empty());
         assert!(!locale.startup_error.is_empty());
-        assert!(!locale.settings_placeholder.is_empty());
         assert!(!locale.overlay_show_ready.is_empty());
         assert!(!locale.overlay_hide_from_capture.is_empty());
         assert!(!locale.overlay_copy_error.is_empty());

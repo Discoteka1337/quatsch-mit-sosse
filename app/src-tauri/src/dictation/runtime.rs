@@ -1,19 +1,22 @@
-use super::{Ports, Session};
+use super::{Phase, Ports, Session};
 use crate::{
-    OverlayState,
+    OverlayState, current_settings,
+    effects::Effects,
     input::{Action, Target},
     messages, model_window, set_overlay_state,
     speech::{self, Microphone, MicrophoneFault, Recognizer},
 };
+use quatsch_mit_sosse_hotkey::RecordingTicket;
 use quatsch_mit_sosse_models::Manager as ModelManager;
 use std::{
     io,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
-        mpsc::{self, Receiver, Sender},
+        mpsc::{self, Receiver, RecvTimeoutError, Sender},
     },
     thread,
+    time::Duration,
 };
 use tauri::{AppHandle, Manager};
 use windows::{
@@ -21,12 +24,16 @@ use windows::{
     core::HSTRING,
 };
 
+type ModelResult = Box<dyn FnOnce(Result<(), String>) + Send>;
+
 enum Command {
     Input(Action),
     Level(u8),
     AudioFault(MicrophoneFault),
     Recognized(Result<String, String>),
     Inserted(Result<(), String>),
+    RemoveModel(String, ModelResult),
+    ModelRemoved,
     Error(String),
     Shutdown(i32),
 }
@@ -34,13 +41,39 @@ enum Command {
 enum Job {
     Recognize(&'static str, Vec<f32>),
     Insert(Target, String),
+    RemoveModel(String, ModelResult),
 }
 
 struct Desktop {
     app: AppHandle,
     mic: Microphone,
+    recording_ticket: Option<RecordingTicket>,
+    effects: Effects,
+    mixer_warning: Option<String>,
     jobs: Sender<Job>,
     level_pending: Arc<AtomicBool>,
+}
+
+pub(super) fn with_mixer_warning(
+    state: OverlayState,
+    warning: &mut Option<String>,
+) -> OverlayState {
+    if !matches!(state, OverlayState::Ready | OverlayState::Error { .. }) {
+        return state;
+    }
+    let Some(warning) = warning.take() else {
+        return state;
+    };
+    match state {
+        OverlayState::Error { message, text } => OverlayState::Error {
+            message: format!("{message} {warning}"),
+            text,
+        },
+        _ => OverlayState::Error {
+            message: warning,
+            text: String::new(),
+        },
+    }
 }
 
 impl Ports for Desktop {
@@ -48,19 +81,30 @@ impl Ports for Desktop {
 
     fn installed(&mut self) -> Result<Option<&'static str>, String> {
         let manager = ModelManager::new().map_err(|e| e.to_string())?;
-        speech::installed_model(&manager)
+        let settings = current_settings(&self.app).map_err(|e| e.to_string())?;
+        speech::installed_model(&manager, settings.model.as_deref())
     }
     fn models(&mut self) -> Result<(), String> {
         model_window::show(&self.app).map_err(|e| e.to_string())
     }
     fn begin(&mut self) -> Result<(), String> {
-        self.mic.begin()
+        let settings = current_settings(&self.app).map_err(|e| e.to_string())?;
+        self.mic.begin(settings.microphone)?;
+        if let Err(message) = self.effects.begin(settings.tones, settings.volume_percent) {
+            self.mixer_warning = Some(message);
+        }
+        Ok(())
     }
     fn finish(&mut self) -> Result<Vec<f32>, String> {
         self.mic.finish()
     }
     fn suspend(&mut self) -> Result<(), String> {
-        self.mic.suspend()
+        self.recording_ticket = None;
+        let microphone = self.mic.suspend();
+        if let Err(message) = self.effects.end() {
+            self.mixer_warning = Some(message);
+        }
+        microphone
     }
     fn recognize(&mut self, model: &'static str, samples: Vec<f32>) -> Result<(), String> {
         self.jobs
@@ -73,6 +117,7 @@ impl Ports for Desktop {
             .map_err(|_| messages().worker_error.clone())
     }
     fn show(&mut self, state: OverlayState) {
+        let state = with_mixer_warning(state, &mut self.mixer_warning);
         let listening = matches!(state, OverlayState::Listening { .. });
         if listening && self.level_pending.swap(true, Ordering::AcqRel) {
             return;
@@ -116,6 +161,7 @@ pub(crate) struct Controller {
 
 impl Controller {
     pub(crate) fn start(app: &AppHandle) -> io::Result<Self> {
+        let data_dir = crate::settings::data_dir()?;
         let (tx, rx) = mpsc::channel();
         let (jobs, work) = mpsc::channel();
         let stopping = Arc::new(AtomicBool::new(false));
@@ -137,6 +183,13 @@ impl Controller {
                         }
                         Job::Insert(target, text) => {
                             Command::Inserted(target.insert(&text).map_err(|e| e.to_string()))
+                        }
+                        Job::RemoveModel(id, done) => {
+                            let result = ModelManager::new()
+                                .map_err(|e| e.to_string())
+                                .and_then(|manager| recognizer.remove_model(&manager, &id));
+                            done(result);
+                            Command::ModelRemoved
                         }
                     };
                     if replies.send(reply).is_err() {
@@ -162,10 +215,17 @@ impl Controller {
                 let mut session = Session::new(Desktop {
                     app: app.clone(),
                     mic,
+                    recording_ticket: None,
+                    effects: Effects::new(data_dir),
+                    mixer_warning: None,
                     jobs,
                     level_pending: Arc::default(),
                 });
+                if let Err(message) = session.ports.effects.recover() {
+                    session.error(message);
+                }
                 let code = run(&mut session, rx, &stop);
+                session.cancel();
                 // Release the microphone first. A running inference may still need to finish.
                 drop(session);
                 let _ = worker.join();
@@ -189,6 +249,16 @@ impl Controller {
             app.exit(code);
         }
     }
+
+    pub(crate) fn remove_model(
+        &self,
+        id: String,
+        on_done: impl FnOnce(Result<(), String>) + Send + 'static,
+    ) -> io::Result<()> {
+        self.tx
+            .send(Command::RemoveModel(id, Box::new(on_done)))
+            .map_err(|_| io::Error::other(&messages().worker_error[..]))
+    }
 }
 
 pub(crate) fn report_error(app: &AppHandle, message: String) {
@@ -202,12 +272,44 @@ fn run(
     rx: Receiver<Command>,
     stopping: &AtomicBool,
 ) -> Option<i32> {
+    let mut removing_model = false;
     loop {
-        match rx.recv().ok()? {
+        let command = if session.ports.effects.needs_recovery() {
+            match rx.recv_timeout(Duration::from_secs(5)) {
+                Ok(command) => command,
+                Err(RecvTimeoutError::Disconnected) => return None,
+                Err(RecvTimeoutError::Timeout) => {
+                    let _ = session.ports.effects.recover();
+                    continue;
+                }
+            }
+        } else {
+            rx.recv().ok()?
+        };
+        match command {
             Command::Shutdown(code) => return Some(code),
             _ if stopping.load(Ordering::Acquire) => continue,
+            Command::RemoveModel(id, done) => {
+                if removing_model || !matches!(session.phase, Phase::Idle) {
+                    done(Err("Das Modell ist beschäftigt. Bitte nach dem laufenden Vorgang erneut versuchen.".into()));
+                } else if let Err(mpsc::SendError(Job::RemoveModel(_, done))) =
+                    session.ports.jobs.send(Job::RemoveModel(id, done))
+                {
+                    done(Err(messages().worker_error.clone()));
+                } else {
+                    removing_model = true;
+                }
+            }
+            Command::ModelRemoved => removing_model = false,
             Command::Input(action) => match action {
-                Action::Start(target) => session.start(target),
+                Action::Start(..) if removing_model => {
+                    session.error("Das Sprachmodell wird gerade entfernt.".into())
+                }
+                Action::Start(target, ticket) => {
+                    if session.start(target) {
+                        session.ports.recording_ticket = Some(ticket);
+                    }
+                }
                 Action::Stop => session.stop(),
                 Action::Cancel => session.cancel(),
                 Action::Reinsert(target) => session.repeat(target),
@@ -222,7 +324,12 @@ fn run(
                     session.error(messages().shortcut_error.clone());
                 }
             },
-            Command::Level(level) => session.level(level),
+            Command::Level(level) => {
+                if let Err(message) = session.ports.effects.refresh() {
+                    session.ports.mixer_warning = Some(message);
+                }
+                session.level(level);
+            }
             Command::AudioFault(fault) => {
                 if session.ports.mic.current_fault(&fault) {
                     session.cancel();

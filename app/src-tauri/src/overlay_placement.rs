@@ -50,7 +50,6 @@ struct Offset {
 #[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 struct SavedOverlay {
-    preferences: OverlayPreferences,
     last_monitor: Option<String>,
     positions: BTreeMap<String, Offset>,
 }
@@ -125,16 +124,7 @@ pub(crate) struct OverlayStore {
 
 impl OverlayStore {
     pub fn open() -> io::Result<Self> {
-        let local = std::env::var_os("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .filter(|p| p.is_absolute())
-            .ok_or_else(|| io::Error::other("Local data directory unavailable"))?;
-        Self::load(
-            &local
-                .join("QuatschMitSosse")
-                .join("data")
-                .join("overlay.json"),
-        )
+        Self::load(&crate::settings::data_dir()?.join("overlay.json"))
     }
 
     fn load(path: &Path) -> io::Result<Self> {
@@ -147,14 +137,6 @@ impl OverlayStore {
             path: path.into(),
             saved,
         })
-    }
-
-    pub fn preferences(&self) -> OverlayPreferences {
-        self.saved.preferences
-    }
-
-    pub fn set_preferences(&mut self, preferences: OverlayPreferences) -> io::Result<()> {
-        self.update(|next| next.preferences = preferences)
     }
 
     pub fn placement(&self, width_dip: i32, height_dip: i32) -> io::Result<Bounds> {

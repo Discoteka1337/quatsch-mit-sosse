@@ -41,6 +41,30 @@ pub struct Hotkey {
 }
 
 impl Hotkey {
+    /// Converts a chord recorded by a focused native control to a supported binding.
+    pub fn from_virtual_keys(
+        ctrl: bool,
+        shift: bool,
+        alt: bool,
+        win: bool,
+        trigger: Option<u32>,
+    ) -> Option<Self> {
+        let modifiers = (u8::from(ctrl) * CTRL)
+            | (u8::from(shift) * SHIFT)
+            | (u8::from(alt) * ALT)
+            | (u8::from(win) * WIN);
+        match trigger {
+            None if modifiers == 0 => None,
+            Some(vk)
+                if !matches!(vk, 0x30..=0x39 | 0x41..=0x5a | 0x70..=0x87)
+                    && !NAMED_KEYS.iter().any(|(key, _)| *key == vk) =>
+            {
+                None
+            }
+            _ => Some(Self { modifiers, trigger }),
+        }
+    }
+
     pub(crate) fn modifiers(self) -> u8 {
         self.modifiers
     }

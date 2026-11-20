@@ -21,10 +21,13 @@ fn dictation_selects_the_benchmarked_german_model_then_the_measured_fallback() {
         (vec!["whisper-large-v3-turbo"], None),
         (vec![], None),
     ] {
-        assert_eq!(select_asr(|id| Ok(installed.contains(&id))), Ok(expected));
+        assert_eq!(
+            select_asr(None, |id| Ok(installed.contains(&id))),
+            Ok(expected)
+        );
     }
     assert_eq!(
-        select_asr(|_| Err("Installationsstatus unlesbar".to_owned())),
+        select_asr(None, |_| Err("Installationsstatus unlesbar".to_owned())),
         Err("Installationsstatus unlesbar".to_owned())
     );
 }
@@ -34,7 +37,7 @@ fn missing_installations_can_be_checked_offline_without_creating_a_directory() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("models");
     let manager = Manager::with_root(root.clone()).unwrap();
-    assert_eq!(installed_model(&manager), Ok(None));
+    assert_eq!(installed_model(&manager, None), Ok(None));
     assert!(!root.exists());
 }
 
@@ -85,6 +88,19 @@ fn queued_idle_errors_expire_on_recovery_and_shutdown() {
 }
 
 struct FakeEngine(&'static str);
+
+#[test]
+fn removing_a_model_releases_only_its_own_cached_recognizer() {
+    let directory = tempfile::tempdir().unwrap();
+    let models = Manager::with_root(directory.path().join("models")).unwrap();
+    let mut recognizer = Recognizer {
+        engine: Some((DEFAULT_MODEL, Box::new(FakeEngine("Test")))),
+    };
+    recognizer.remove_model(&models, FALLBACK_MODEL).unwrap();
+    assert!(recognizer.engine.is_some());
+    recognizer.remove_model(&models, DEFAULT_MODEL).unwrap();
+    assert!(recognizer.engine.is_none());
+}
 
 impl SpeechEngine for FakeEngine {
     fn transcribe(
@@ -301,4 +317,17 @@ fn a_failed_v3_retry_reports_both_models_and_the_fallback_reason() {
     assert!(message.contains("primeLine"));
     assert!(message.contains("Parakeet v3"));
     assert!(message.contains(&SttError::ModelBusy.to_string()));
+}
+#[test]
+fn explicit_model_selection_waits_for_the_selected_installation() {
+    for preferred in [DEFAULT_MODEL, FALLBACK_MODEL, WHISPER_MODEL] {
+        assert_eq!(
+            select_asr(Some(preferred), |id| Ok(id == preferred)),
+            Ok(Some(preferred))
+        );
+        assert_eq!(
+            select_asr(Some(preferred), |id| Ok(id != preferred)),
+            Ok(None)
+        );
+    }
 }

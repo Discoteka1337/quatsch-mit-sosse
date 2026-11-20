@@ -1,4 +1,6 @@
-use quatsch_mit_sosse_hotkey::{HookNotice, HotkeyConfig, HotkeyEvent, HotkeyHook};
+use quatsch_mit_sosse_hotkey::{
+    HookNotice, HotkeyConfig, HotkeyEvent, HotkeyHook, RecordingTicket,
+};
 use quatsch_mit_sosse_inject::{InjectConfig, InjectError, InsertTarget};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -11,7 +13,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 pub(super) enum Action {
-    Start(Option<Target>),
+    Start(Option<Target>, RecordingTicket),
     Stop,
     Cancel,
     Reinsert(Option<Target>),
@@ -121,13 +123,14 @@ impl Focus {
 }
 
 pub(super) struct Shortcuts {
-    _hook: HotkeyHook,
+    hook: HotkeyHook,
     focus: Arc<Mutex<Focus>>,
     dispatch: Arc<dyn Fn(Action) + Send + Sync>,
 }
 
 impl Shortcuts {
     pub(super) fn start(
+        config: HotkeyConfig,
         dispatch: impl Fn(Action) + Send + Sync + 'static,
     ) -> std::io::Result<Self> {
         let dispatch = Arc::new(dispatch);
@@ -135,7 +138,7 @@ impl Shortcuts {
         let hook_dispatch = dispatch.clone();
         let hook_focus = focus.clone();
         let mut current = None;
-        let hook = HotkeyHook::start_observed(HotkeyConfig::default(), move |notice| {
+        let hook = HotkeyHook::start_with_feedback(config, move |notice, ticket| {
             let action = match notice {
                 HookNotice::Foreground { window, available } => {
                     let surface = surface(HWND(window as _), available);
@@ -153,7 +156,9 @@ impl Shortcuts {
                     return;
                 }
                 HookNotice::Action(event) => match event {
-                    HotkeyEvent::Start => Action::Start(current),
+                    HotkeyEvent::Start => {
+                        Action::Start(current, ticket.expect("Start carries a recording ticket"))
+                    }
                     HotkeyEvent::Stop => Action::Stop,
                     HotkeyEvent::Cancel => Action::Cancel,
                     HotkeyEvent::ReinsertLast => Action::Reinsert(current),
@@ -165,10 +170,18 @@ impl Shortcuts {
             hook_dispatch(action);
         })?;
         Ok(Self {
-            _hook: hook,
+            hook,
             focus,
             dispatch,
         })
+    }
+
+    pub(super) fn configure(&self, config: HotkeyConfig) -> std::io::Result<()> {
+        self.hook.configure(config)
+    }
+
+    pub(super) fn capture(&self, active: bool) -> std::io::Result<()> {
+        self.hook.capture(active)
     }
 
     pub(super) fn reinsert_from_tray(&self) {

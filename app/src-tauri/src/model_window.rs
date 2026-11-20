@@ -1,11 +1,11 @@
-use crate::speech::{DEFAULT_MODEL, VAD_MODEL, installed_asr};
+use crate::speech::{DEFAULT_MODEL, FALLBACK_MODEL, VAD_MODEL, installed_asr};
 use quatsch_mit_sosse_models::{Manager as Models, Model, Progress, ProgressPhase};
 use serde::Deserialize;
 use std::{
     cell::RefCell,
     io,
     sync::{
-        LazyLock, Mutex,
+        Arc, LazyLock, Mutex,
         atomic::{AtomicBool, AtomicIsize, Ordering},
     },
     thread,
@@ -51,30 +51,37 @@ static LABELS: LazyLock<Labels> = LazyLock::new(|| {
         .expect("The embedded model manager labels must be valid")
 });
 
-fn missing_ids(asr: Option<&str>, vad_installed: bool) -> Vec<&'static str> {
+fn required_ids(
+    preferred: Option<&str>,
+    mut installed: impl FnMut(&str) -> Result<bool, String>,
+) -> Result<Vec<&str>, String> {
     let mut ids = Vec::new();
-    if asr.is_none() {
-        ids.push(DEFAULT_MODEL);
+    let requested = preferred.unwrap_or(DEFAULT_MODEL);
+    if !installed(requested)? && (preferred.is_some() || !installed(FALLBACK_MODEL)?) {
+        ids.push(requested);
     }
-    if !vad_installed {
+    if !installed(VAD_MODEL)? {
         ids.push(VAD_MODEL);
     }
-    ids
+    Ok(ids)
 }
 
-fn missing_models(manager: &Models) -> Result<Vec<&Model>, String> {
-    let asr = installed_asr(manager)?;
-    let vad = manager.is_installed(VAD_MODEL).map_err(|e| e.to_string())?;
-    missing_ids(asr, vad)
-        .into_iter()
-        .map(|id| {
-            manager
-                .list()
-                .iter()
-                .find(|m| m.id == id)
-                .ok_or_else(|| quatsch_mit_sosse_models::Error::UnknownModel.to_string())
-        })
-        .collect()
+fn missing_models<'a>(
+    manager: &'a Models,
+    preferred: Option<&str>,
+) -> Result<Vec<&'a Model>, String> {
+    required_ids(preferred, |id| {
+        manager.is_installed(id).map_err(|e| e.to_string())
+    })?
+    .into_iter()
+    .map(|id| {
+        manager
+            .list()
+            .iter()
+            .find(|m| m.id == id)
+            .ok_or_else(|| quatsch_mit_sosse_models::Error::UnknownModel.to_string())
+    })
+    .collect()
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -122,8 +129,8 @@ impl View {
     }
 }
 
-fn inspect(manager: &Models) -> Result<View, String> {
-    let models = missing_models(manager)?;
+fn inspect(manager: &Models, preferred: Option<&str>) -> Result<View, String> {
+    let models = missing_models(manager, preferred)?;
     if models.is_empty() {
         return Ok(View::ready());
     }
@@ -172,7 +179,6 @@ fn progress_view(name: &str, event: &Progress, previous: u64, total: u64) -> Vie
 
 struct Shared {
     view: Mutex<View>,
-    open: AtomicBool,
     hwnd: AtomicIsize,
     cancel: AtomicBool,
 }
@@ -181,7 +187,6 @@ impl Default for Shared {
     fn default() -> Self {
         Self {
             view: Mutex::new(View::prompt(String::new())),
-            open: AtomicBool::new(false),
             hwnd: AtomicIsize::new(0),
             cancel: AtomicBool::new(false),
         }
@@ -212,44 +217,50 @@ impl Shared {
     }
 }
 
-static SESSION: LazyLock<Shared> = LazyLock::new(Shared::default);
+// A finishing download belongs to its original selection, even if the
+// settings window has since opened a different model.
+static DIALOGS: Mutex<Vec<(Option<String>, Arc<Shared>)>> = Mutex::new(Vec::new());
 const DOWNLOAD: i32 = 101;
 
-fn failure(app: &AppHandle, message: String) {
-    SESSION.set(View::failure(message.clone()));
-    crate::dictation::report_error(app, message);
+fn failure(shared: &Shared, app: &AppHandle, message: String) {
+    shared.set(View::failure(message.clone()));
+    if !shared.cancel.load(Ordering::Acquire) {
+        crate::dictation::report_error(app, message);
+    }
 }
 
-fn install() -> Result<View, String> {
+fn install(shared: &Shared, preferred: Option<&str>) -> Result<View, String> {
     let manager = Models::new().map_err(|e| e.to_string())?;
-    let models = missing_models(&manager)?;
+    let models = missing_models(&manager, preferred)?;
     let total = models.iter().map(|m| m.download_size()).sum();
     let mut previous = 0;
     for model in models {
-        let outcome = manager.install(&model.id, &SESSION.cancel, |event| {
-            SESSION.set(progress_view(&model.display_name, &event, previous, total));
+        let outcome = manager.install(&model.id, &shared.cancel, |event| {
+            shared.set(progress_view(&model.display_name, &event, previous, total));
         });
         if matches!(outcome, Err(quatsch_mit_sosse_models::Error::Cancelled)) {
-            return inspect(&manager);
+            return inspect(&manager, preferred);
         }
         outcome.map_err(|e| e.to_string())?;
         previous += model.download_size();
     }
-    inspect(&manager)
+    inspect(&manager, preferred)
 }
 
-fn start_download(app: &AppHandle) {
-    if SESSION.begin() {
+fn start_download(shared: &Arc<Shared>, app: &AppHandle, preferred: Option<&str>) {
+    if shared.begin() {
         let handle = app.clone();
+        let session = shared.clone();
+        let preferred = preferred.map(str::to_owned);
         if thread::Builder::new()
             .name("model-download".into())
-            .spawn(move || match install() {
-                Ok(view) => SESSION.set(view),
-                Err(message) => failure(&handle, message),
+            .spawn(move || match install(&session, preferred.as_deref()) {
+                Ok(view) => session.set(view),
+                Err(message) => failure(&session, &handle, message),
             })
             .is_err()
         {
-            failure(app, LABELS.model_worker_error.clone());
+            failure(shared, app, LABELS.model_worker_error.clone());
         }
     }
 }
@@ -321,25 +332,25 @@ unsafe extern "system" fn callback(
     S_OK
 }
 
-fn run_dialog(app: &AppHandle) -> windows::core::Result<()> {
+fn run_dialog(
+    shared: &Arc<Shared>,
+    app: &AppHandle,
+    preferred: Option<&str>,
+) -> windows::core::Result<()> {
     let information = Models::new()
         .map_err(|e| e.to_string())
         .and_then(|manager| {
-            let asr = installed_asr(&manager)?.unwrap_or(DEFAULT_MODEL);
-            if SESSION.snapshot().stage != Stage::Installing {
-                SESSION.set(inspect(&manager)?);
-            }
+            let asr = preferred
+                .or(installed_asr(&manager)?)
+                .unwrap_or(DEFAULT_MODEL);
+            shared.set(inspect(&manager, preferred)?);
             Ok(credits(&manager, asr))
         });
     let notes = information.unwrap_or_else(|message| {
-        if SESSION.snapshot().stage == Stage::Installing {
-            crate::dictation::report_error(app, message);
-        } else {
-            failure(app, message);
-        }
+        failure(shared, app, message);
         String::new()
     });
-    native_dialog(&SESSION, &notes, &|| start_download(app))
+    native_dialog(shared, &notes, &|| start_download(shared, app, preferred))
 }
 
 fn native_dialog(shared: &Shared, notes: &str, download: &dyn Fn()) -> windows::core::Result<()> {
@@ -394,8 +405,11 @@ fn native_dialog(shared: &Shared, notes: &str, download: &dyn Fn()) -> windows::
 }
 
 pub(super) fn show(app: &AppHandle) -> tauri::Result<()> {
-    if SESSION.open.swap(true, Ordering::AcqRel) {
-        let hwnd = SESSION.hwnd.load(Ordering::Acquire);
+    let preferred = crate::current_settings(app)?.model;
+    let mut dialogs = DIALOGS.lock().unwrap_or_else(|error| error.into_inner());
+    if let Some((_, session)) = dialogs.iter().find(|(key, _)| *key == preferred) {
+        let hwnd = session.hwnd.load(Ordering::Acquire);
+        drop(dialogs);
         if hwnd != 0 {
             unsafe {
                 let _ = SetForegroundWindow(HWND(hwnd as _));
@@ -403,20 +417,31 @@ pub(super) fn show(app: &AppHandle) -> tauri::Result<()> {
         }
         return Ok(());
     }
+    let shared = Arc::new(Shared::default());
+    dialogs.push((preferred.clone(), shared.clone()));
+    drop(dialogs);
     let app = app.clone();
+    let session = shared.clone();
     thread::Builder::new()
         .name("model-dialog".into())
         .spawn(move || {
-            if run_dialog(&app).is_err() {
+            if run_dialog(&session, &app, preferred.as_deref()).is_err() {
                 crate::dictation::report_error(&app, LABELS.model_window_error.clone());
             }
-            SESSION.open.store(false, Ordering::Release);
+            forget_dialog(&session);
         })
         .map_err(|_| {
-            SESSION.open.store(false, Ordering::Release);
+            forget_dialog(&shared);
             io::Error::other(&LABELS.model_window_error[..])
         })?;
     Ok(())
+}
+
+fn forget_dialog(shared: &Arc<Shared>) {
+    DIALOGS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .retain(|(_, entry)| !Arc::ptr_eq(entry, shared));
 }
 
 #[cfg(test)]

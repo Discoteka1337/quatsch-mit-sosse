@@ -132,35 +132,36 @@ fn dropping_between_displays_uses_largest_visible_area_and_recovers_from_a_gap()
 }
 
 #[test]
-fn read_and_atomic_updates_keep_options_and_positions_across_restarts() {
+fn placement_preserves_legacy_positions_and_leaves_preferences_to_settings() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("Ordner mit ß").join("overlay.json");
-    let mut store = OverlayStore::load(&path).unwrap();
     assert!(!path.exists());
-    assert_eq!(store.preferences(), OverlayPreferences::default());
-    let prefs = OverlayPreferences {
-        show_ready: true,
-        hide_from_capture: true,
-    };
-    store.set_preferences(prefs).unwrap();
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, br#"{"preferences":{"showReady":true},"lastMonitor":"main","positions":{"main":{"x":12,"y":17}}}"#).unwrap();
+    let mut store = OverlayStore::load(&path).unwrap();
+    assert_eq!(
+        store.saved.restored(&monitors(), 160, 36),
+        Some(bounds(12, 57, 160, 36))
+    );
     let screens = monitors();
     let dragged = bounds(-1200, 600, 240, 54);
     store.remember_on(&screens, dragged).unwrap();
     let reopened = OverlayStore::load(&path).unwrap();
-    assert_eq!(reopened.preferences(), prefs);
+    let data: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    assert!(data.get("preferences").is_none());
     assert_eq!(reopened.saved.restored(&screens, 160, 36), Some(dragged));
 }
 
 #[test]
-fn failed_preference_write_leaves_in_memory_options_unchanged() {
+fn failed_position_write_leaves_in_memory_location_unchanged() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("blocked").join("overlay.json");
     let mut store = OverlayStore::load(&path).unwrap();
     std::fs::write(dir.path().join("blocked"), []).unwrap();
-    let prefs = OverlayPreferences {
-        show_ready: true,
-        hide_from_capture: true,
-    };
-    assert!(store.set_preferences(prefs).is_err());
-    assert_eq!(store.preferences(), OverlayPreferences::default());
+    assert!(
+        store
+            .remember_on(&monitors(), bounds(100, 100, 160, 36))
+            .is_err()
+    );
+    assert!(store.saved.last_monitor.is_none());
 }

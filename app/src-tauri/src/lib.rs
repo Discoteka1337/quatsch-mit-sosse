@@ -9,16 +9,20 @@ use tauri::{
 
 mod benchmark;
 mod dictation;
+mod effects;
 mod input;
 mod model_window;
 mod native_ui;
 mod overlay;
 mod overlay_placement;
 mod overlay_window;
+mod preferences;
+mod settings;
 mod settings_gate;
 mod speech;
 
 pub use overlay::{OverlayState, set_overlay_state};
+use preferences::{apply_settings, capture_shortcuts, current_settings};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,7 +44,6 @@ struct Messages {
     quit: String,
     settings_open_error: String,
     startup_error: String,
-    settings_placeholder: String,
     overlay_show_ready: String,
     overlay_hide_from_capture: String,
     overlay_listening: String,
@@ -170,12 +173,17 @@ pub fn run() -> tauri::Result<()> {
     let mut ready_signal = benchmark::ReadySignal::new(writer);
     let app = tauri::Builder::default()
         .manage(Mutex::new(settings_gate::SettingsGate::default()))
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            request_settings(app);
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if !args.iter().any(|arg| arg == "--autostart") {
+                request_settings(app);
+            }
         }))
         .setup(move |app| {
             app.manage(std::thread::current().id());
-            app.manage(overlay::Controller::open()?);
+            let store = settings::SettingsStore::open()?;
+            let config = store.current().hotkeys()?;
+            app.manage(overlay::Controller::open(store.current().overlay)?);
+            app.manage(Mutex::new(store));
             let text = messages();
             let settings = MenuItem::with_id(app, "settings", &text.settings, true, None::<&str>)?;
             let reinsert = MenuItem::with_id(app, "reinsert", &text.reinsert, true, None::<&str>)?;
@@ -209,7 +217,7 @@ pub fn run() -> tauri::Result<()> {
             let controller = dictation::Controller::start(app.handle())?;
             let dispatch = controller.input_handler();
             app.manage(controller);
-            match input::Shortcuts::start(dispatch) {
+            match input::Shortcuts::start(config, dispatch) {
                 Ok(shortcuts) => {
                     app.manage(shortcuts);
                 }

@@ -1,5 +1,9 @@
-use std::{io, sync::Mutex, thread::ThreadId};
-use tauri::{AppHandle, Manager, Window, WindowEvent};
+use std::{
+    cell::{Cell, RefCell},
+    io,
+    rc::Rc,
+};
+use tauri::{AppHandle, Manager, Window};
 use windows::{
     Win32::{
         Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
@@ -9,93 +13,39 @@ use windows::{
         },
         System::SystemServices::SS_NOPREFIX,
         UI::{
-            HiDpi::GetDpiForWindow,
-            Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
-            WindowsAndMessaging::{
-                BM_SETCHECK, BN_CLICKED, BS_CHECKBOX, CreateWindowExW, DestroyWindow,
-                GetClientRect, HMENU, MB_ICONERROR, MB_OK, MessageBoxW, SWP_NOACTIVATE,
-                SWP_NOZORDER, SendMessageW, SetWindowPos, WINDOW_EX_STYLE, WINDOW_STYLE,
-                WM_COMMAND, WM_NCDESTROY, WM_SETFONT, WS_CHILD, WS_TABSTOP, WS_VISIBLE,
+            Controls::{
+                ICC_PROGRESS_CLASS, INITCOMMONCONTROLSEX, InitCommonControlsEx, PBM_SETPOS,
             },
+            HiDpi::GetDpiForWindow,
+            Input::KeyboardAndMouse::{EnableWindow, GetKeyState, SetFocus, VK_SHIFT},
+            Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
+            WindowsAndMessaging::*,
         },
     },
     core::{HSTRING, w},
 };
 
-const SHOW_READY: u16 = 101;
-const HIDE_FROM_CAPTURE: u16 = 102;
+mod capture;
+mod labels;
+mod layout;
+mod probe;
+mod values;
+use capture::Chord;
+use labels::LABELS;
+use layout::*;
 
-#[derive(Clone, Copy, Debug)]
-struct Label<'a> {
-    text: &'a str,
-    size: i32,
-    weight: i32,
-    checkbox: Option<u16>,
-}
-
-fn settings_controls(text: &crate::Messages) -> [Label<'_>; 5] {
-    let label = |text, size, weight, checkbox| Label {
-        text,
-        size,
-        weight,
-        checkbox,
-    };
-    [
-        label(&text.app_name, 14, 400, None),
-        label(&text.settings, 24, 600, None),
-        label(&text.settings_placeholder, 14, 400, None),
-        label(&text.overlay_show_ready, 14, 400, Some(SHOW_READY)),
-        label(
-            &text.overlay_hide_from_capture,
-            14,
-            400,
-            Some(HIDE_FROM_CAPTURE),
-        ),
-    ]
-}
-
-#[derive(Debug, PartialEq)]
-struct Rect {
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
-}
+const FIELD_KEY_DOWN: u32 = WM_APP + 21;
+const FIELD_KEY_UP: u32 = WM_APP + 22;
+const FIELD_BLUR: u32 = WM_APP + 23;
+const FIELD_FOCUS: u32 = WM_APP + 24;
+const PROBE_TIMER: usize = 0x514d;
+const REMOVE_TIMER: usize = 0x514e;
 
 fn scale(value: i32, dpi: u32) -> i32 {
-    (value as i64 * dpi.max(96) as i64 / 96) as i32
-}
-
-fn layout(width: i32, height: i32, dpi: u32) -> [Rect; 5] {
-    let width = width.max(0);
-    let height = height.max(0);
-    let margin = scale(24, dpi);
-    let x = margin.min(width / 2);
-    let box_width = (width - 2 * x).max(0);
-    let rect = |y: i32, box_height: i32| {
-        let y = scale(y, dpi).min(height);
-        Rect {
-            x,
-            y,
-            width: box_width,
-            height: scale(box_height, dpi).min(height - y).max(0),
-        }
-    };
-    [
-        rect(24, 24),
-        rect(62, 36),
-        rect(110, 44),
-        rect(158, 32),
-        rect(196, 32),
-    ]
-}
-
-fn native_error() -> io::Error {
-    io::Error::other("The native window content could not be initialized")
+    (i64::from(value) * i64::from(dpi.max(96)) / 96) as i32
 }
 
 pub(super) struct Font(pub(super) usize);
-
 impl Font {
     pub(super) fn create(size: i32, weight: i32, dpi: u32) -> io::Result<Self> {
         let font = unsafe {
@@ -117,12 +67,11 @@ impl Font {
             )
         };
         if font.0.is_null() {
-            return Err(native_error());
+            return Err(io::Error::last_os_error());
         }
         Ok(Self(font.0 as usize))
     }
 }
-
 impl Drop for Font {
     fn drop(&mut self) {
         unsafe {
@@ -131,106 +80,119 @@ impl Drop for Font {
     }
 }
 
-struct Control {
-    handle: usize,
-    font: Font,
-    size: i32,
-    weight: i32,
+fn send(hwnd: HWND, msg: u32, wp: usize, lp: isize) -> LRESULT {
+    unsafe { SendMessageW(hwnd, msg, Some(WPARAM(wp)), Some(LPARAM(lp))) }
 }
 
-impl Control {
-    fn set_font(&self, font: &Font) {
+struct Form {
+    hwnd: HWND,
+    app: AppHandle,
+    scroll: Cell<i32>,
+    dpi: Cell<u32>,
+    in_layout: Cell<bool>,
+    fonts: RefCell<Option<(Font, Font)>>,
+    capturing: Cell<u16>,
+    chord: RefCell<Chord>,
+    devices: RefCell<Vec<String>>,
+    model_ids: RefCell<Vec<String>>,
+    probe: RefCell<Option<probe::Probe>>,
+    removal: RefCell<Option<std::sync::mpsc::Receiver<Result<(), String>>>>,
+}
+
+impl Form {
+    fn control(&self, id: u16) -> HWND {
+        unsafe { GetDlgItem(Some(self.hwnd), i32::from(id)) }.unwrap_or_default()
+    }
+    fn set_text(&self, id: u16, text: &str) {
         unsafe {
-            SendMessageW(
-                HWND(self.handle as _),
-                WM_SETFONT,
-                Some(WPARAM(font.0)),
-                Some(LPARAM(1)),
-            );
+            let _ = SetWindowTextW(self.control(id), &HSTRING::from(text));
+        }
+    }
+    fn error(&self, error: io::Error) {
+        self.set_text(STATUS, &format!("{} {error}", LABELS.general_failure));
+    }
+    fn viewport(&self) -> RECT {
+        let mut rect = RECT::default();
+        unsafe {
+            let _ = GetClientRect(self.hwnd, &mut rect);
+        }
+        rect
+    }
+    fn focus_field(&self, id: u16) {
+        if !FIELDS.iter().any(|field| field.id == id) {
+            return;
+        }
+        let area = self.viewport();
+        let field = placement(id, area.right, self.dpi.get(), self.scroll.get());
+        let top = field.y;
+        let bottom = field.y + field.height - area.bottom;
+        let delta = if top < 0 { top } else { bottom.max(0) };
+        if delta != 0 {
+            self.scroll_by(delta);
+        }
+    }
+    fn scroll_by(&self, delta: i32) {
+        self.scroll.set(self.scroll.get().saturating_add(delta));
+        let _ = layout::layout(self);
+    }
+    fn detach(&self) {
+        self.cancel_capture();
+        self.end_probe();
+        let stock = unsafe { GetStockObject(DEFAULT_GUI_FONT) };
+        for field in FIELDS.iter() {
+            send(self.control(field.id), WM_SETFONT, stock.0 as usize, 0);
         }
     }
 }
 
-struct NativeControls {
-    owner: ThreadId,
-    parent: usize,
-    dpi: u32,
-    controls: Vec<Control>,
-    parent_owned: bool,
-}
-
-impl NativeControls {
-    fn detach_fonts(&self) {
-        // Tao emits Destroyed at WM_DESTROY, when child HWNDs can still exist.
-        // Select a system-owned font before releasing our own GDI objects.
-        let stock_font = unsafe { GetStockObject(DEFAULT_GUI_FONT) };
-        for control in &self.controls {
-            unsafe {
-                SendMessageW(
-                    HWND(control.handle as _),
-                    WM_SETFONT,
-                    Some(WPARAM(stock_font.0 as usize)),
-                    Some(LPARAM(0)),
-                );
-            }
+fn navigate(parent: HWND, field: Option<HWND>) {
+    let previous = unsafe { GetKeyState(i32::from(VK_SHIFT.0)) < 0 };
+    unsafe {
+        if let Ok(next) = GetNextDlgTabItem(parent, field, previous) {
+            let _ = SetFocus(Some(next));
         }
-    }
-
-    fn relayout(&mut self) -> io::Result<()> {
-        if self.owner != std::thread::current().id() {
-            return Err(native_error());
-        }
-        let parent = HWND(self.parent as _);
-        let mut bounds = RECT::default();
-        unsafe { GetClientRect(parent, &mut bounds) }.map_err(|_| native_error())?;
-        let dpi = unsafe { GetDpiForWindow(parent) }.max(96);
-        if dpi != self.dpi {
-            // Prepare every replacement before touching controls or releasing old fonts.
-            let fonts = self
-                .controls
-                .iter()
-                .map(|control| Font::create(control.size, control.weight, dpi))
-                .collect::<io::Result<Vec<_>>>()?;
-            for (control, font) in self.controls.iter_mut().zip(fonts) {
-                control.set_font(&font);
-                control.font = font;
-            }
-            self.dpi = dpi;
-        }
-        for (control, bounds) in self.controls.iter().zip(layout(
-            bounds.right - bounds.left,
-            bounds.bottom - bounds.top,
-            dpi,
-        )) {
-            unsafe {
-                SetWindowPos(
-                    HWND(control.handle as _),
-                    None,
-                    bounds.x,
-                    bounds.y,
-                    bounds.width,
-                    bounds.height,
-                    SWP_NOACTIVATE | SWP_NOZORDER,
-                )
-            }
-            .map_err(|_| native_error())?;
-        }
-        Ok(())
     }
 }
 
-impl Drop for NativeControls {
-    fn drop(&mut self) {
-        // On initialization failure, remove children before dropping their fonts.
-        // Successful children belong to the parent; Destroyed first detaches fonts.
-        if !self.parent_owned {
-            for control in &self.controls {
-                unsafe {
-                    let _ = DestroyWindow(HWND(control.handle as _));
+// Only forward key events from shortcut fields to the parent. Its return value
+// indicates whether a recording is active. Other controls keep their native input.
+unsafe extern "system" fn child_proc(
+    hwnd: HWND,
+    msg: u32,
+    wp: WPARAM,
+    lp: LPARAM,
+    id: usize,
+    _: usize,
+) -> LRESULT {
+    if msg == WM_NCDESTROY {
+        unsafe {
+            let _ = RemoveWindowSubclass(hwnd, Some(child_proc), id);
+        }
+    } else if let Ok(parent) = unsafe { GetParent(hwnd) } {
+        match msg {
+            WM_KEYDOWN | WM_SYSKEYDOWN | WM_KEYUP | WM_SYSKEYUP => {
+                let down = matches!(msg, WM_KEYDOWN | WM_SYSKEYDOWN);
+                if matches!(id as u16, DICTATION | REINSERT) {
+                    let event = if down { FIELD_KEY_DOWN } else { FIELD_KEY_UP };
+                    if send(parent, event, id, wp.0 as isize).0 != 0 {
+                        return LRESULT(0);
+                    }
+                }
+                if down && wp.0 == 9 {
+                    navigate(parent, Some(hwnd));
+                    return LRESULT(0);
                 }
             }
+            WM_SETFOCUS => {
+                send(parent, FIELD_FOCUS, id, 0);
+            }
+            WM_KILLFOCUS => {
+                send(parent, FIELD_BLUR, id, 0);
+            }
+            _ => {}
         }
     }
+    unsafe { DefSubclassProc(hwnd, msg, wp, lp) }
 }
 
 unsafe extern "system" fn settings_proc(
@@ -241,178 +203,196 @@ unsafe extern "system" fn settings_proc(
     id: usize,
     data: usize,
 ) -> LRESULT {
-    if msg == WM_NCDESTROY {
-        unsafe {
+    // A modal dialog can reenter this procedure and destroy the window. Retain
+    // one invocation-local reference in addition to the subclass-owned one.
+    let ptr = data as *const Form;
+    let form = unsafe {
+        Rc::increment_strong_count(ptr);
+        Rc::from_raw(ptr)
+    };
+    match msg {
+        WM_NCDESTROY => unsafe {
             let _ = RemoveWindowSubclass(hwnd, Some(settings_proc), id);
-            drop(Box::from_raw(data as *mut AppHandle));
+            drop(Rc::from_raw(ptr));
+        },
+        WM_DESTROY => form.detach(),
+        WM_SIZE | WM_DPICHANGED => {
+            let _ = layout::layout(&form);
         }
-    } else if msg == WM_COMMAND && (wp.0 >> 16) as u32 == BN_CLICKED && lp.0 != 0 {
-        let control = wp.0 as u16;
-        if matches!(control, SHOW_READY | HIDE_FROM_CAPTURE) {
-            // Clone before calling Win32 again: a nested message may destroy the window.
-            let app = unsafe { (&*(data as *const AppHandle)).clone() };
-            match crate::overlay::toggle_preference(&app, control == SHOW_READY) {
-                Ok(checked) => unsafe {
-                    SendMessageW(
-                        HWND(lp.0 as _),
-                        BM_SETCHECK,
-                        Some(WPARAM(usize::from(checked))),
-                        None,
-                    );
-                },
-                Err(_) => {
-                    let text = crate::messages();
-                    unsafe {
-                        MessageBoxW(
-                            Some(hwnd),
-                            &HSTRING::from(&text.overlay_preferences_error),
-                            &HSTRING::from(&text.app_name),
-                            MB_OK | MB_ICONERROR,
-                        );
-                    }
+        WM_ACTIVATE if wp.0 as u16 != 0 => {
+            if let Err(error) = form.refresh() {
+                form.error(error);
+            }
+        }
+        WM_SHOWWINDOW if wp.0 != 0 && form.model_ids.borrow().is_empty() => {
+            if let Err(error) = form.refresh() {
+                form.error(error);
+            }
+        }
+        WM_ACTIVATE => form.cancel_capture(),
+        WM_KEYDOWN if wp.0 == 9 => {
+            navigate(hwnd, None);
+            return LRESULT(0);
+        }
+        FIELD_FOCUS => {
+            form.focus_field(wp.0 as u16);
+            return LRESULT(0);
+        }
+        FIELD_BLUR => {
+            if form.capturing.get() == wp.0 as u16 {
+                form.cancel_capture();
+            }
+            return LRESULT(0);
+        }
+        FIELD_KEY_DOWN | FIELD_KEY_UP => {
+            if form.capturing.get() == wp.0 as u16 {
+                if let Err(error) = form.capture_key(lp.0 as u32, msg == FIELD_KEY_DOWN) {
+                    form.error(error);
+                }
+                return LRESULT(1);
+            }
+            return LRESULT(0);
+        }
+        WM_COMMAND if lp.0 != 0 => {
+            if let Err(error) = form.command(wp.0 as u16, (wp.0 >> 16) as u32) {
+                let _ = form.refresh();
+                form.error(error);
+            }
+            return LRESULT(0);
+        }
+        WM_TIMER if wp.0 == PROBE_TIMER => {
+            let reading = form
+                .probe
+                .borrow()
+                .as_ref()
+                .map(|probe| (probe.level(), probe.finished()));
+            if let Some((level, finished)) = reading {
+                send(form.control(LEVEL), PBM_SETPOS, level, 0);
+                if finished {
+                    form.end_probe();
                 }
             }
             return LRESULT(0);
         }
+        WM_TIMER if wp.0 == REMOVE_TIMER => {
+            if let Err(error) = form.poll_removal() {
+                form.error(error);
+            }
+            return LRESULT(0);
+        }
+        WM_MOUSEWHEEL => {
+            let delta = (wp.0 >> 16) as i16;
+            form.scroll_by(-i32::from(delta) * scale(48, form.dpi.get()) / 120);
+            return LRESULT(0);
+        }
+        WM_VSCROLL => {
+            let line = scale(28, form.dpi.get());
+            let page = form.viewport().bottom;
+            let delta = match SCROLLBAR_COMMAND(i32::from(wp.0 as u16)) {
+                SB_LINEUP => -line,
+                SB_LINEDOWN => line,
+                SB_PAGEUP => -page,
+                SB_PAGEDOWN => page,
+                SB_TOP => -form.scroll.get(),
+                SB_BOTTOM => scale(CONTENT_HEIGHT, form.dpi.get()),
+                SB_THUMBPOSITION | SB_THUMBTRACK => {
+                    ((wp.0 >> 16) as u16) as i32 - form.scroll.get()
+                }
+                _ => 0,
+            };
+            form.scroll_by(delta);
+            return LRESULT(0);
+        }
+        _ => {}
     }
     unsafe { DefSubclassProc(hwnd, msg, wp, lp) }
 }
 
-/// Attach controls and their command handler on the owning window thread.
 pub(super) fn attach(window: &Window) -> tauri::Result<()> {
     let parent = window.hwnd()?;
-    let dpi = unsafe { GetDpiForWindow(parent) }.max(96);
-    let options = crate::overlay::preferences(window.app_handle())?;
-    let mut native = NativeControls {
-        owner: std::thread::current().id(),
-        parent: parent.0 as usize,
-        dpi,
-        controls: Vec::new(),
-        parent_owned: false,
+    let init = INITCOMMONCONTROLSEX {
+        dwSize: size_of::<INITCOMMONCONTROLSEX>() as u32,
+        dwICC: ICC_PROGRESS_CLASS,
     };
-    for label in settings_controls(crate::messages()) {
-        let font = Font::create(label.size, label.weight, dpi)?;
-        let (class, style) = if label.checkbox.is_some() {
-            (w!("BUTTON"), WS_TABSTOP | WINDOW_STYLE(BS_CHECKBOX as u32))
-        } else {
-            (w!("STATIC"), WINDOW_STYLE(SS_NOPREFIX.0))
+    if !unsafe { InitCommonControlsEx(&init) }.as_bool() {
+        return Err(io::Error::last_os_error().into());
+    }
+    unsafe {
+        let style = GetWindowLongPtrW(parent, GWL_STYLE);
+        SetWindowLongPtrW(parent, GWL_STYLE, style | WS_VSCROLL.0 as isize);
+        SetWindowPos(
+            parent,
+            None,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        )
+        .map_err(io::Error::from)?;
+    }
+    for field in FIELDS.iter() {
+        let (class, style) = match field.kind {
+            Kind::Text => (w!("STATIC"), WINDOW_STYLE(SS_NOPREFIX.0)),
+            Kind::Check => (w!("BUTTON"), WS_TABSTOP | WINDOW_STYLE(BS_CHECKBOX as u32)),
+            Kind::Button => (
+                w!("BUTTON"),
+                WS_TABSTOP | WINDOW_STYLE(BS_PUSHBUTTON as u32),
+            ),
+            Kind::Combo => (
+                w!("COMBOBOX"),
+                WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(CBS_DROPDOWNLIST as u32),
+            ),
+            Kind::Meter => (w!("msctls_progress32"), WINDOW_STYLE(0)),
         };
-        let handle = unsafe {
+        let child = unsafe {
             CreateWindowExW(
                 WINDOW_EX_STYLE::default(),
                 class,
-                &HSTRING::from(label.text),
+                &HSTRING::from(field.text),
                 WS_CHILD | WS_VISIBLE | style,
                 0,
                 0,
                 0,
                 0,
                 Some(parent),
-                label.checkbox.map(|id| HMENU(usize::from(id) as _)),
+                Some(HMENU(usize::from(field.id) as _)),
                 None,
                 None,
             )
-        }
-        .map_err(|_| native_error())?;
-        if let Some(id) = label.checkbox {
-            let checked = if id == SHOW_READY {
-                options.show_ready
-            } else {
-                options.hide_from_capture
-            };
-            unsafe {
-                SendMessageW(
-                    handle,
-                    BM_SETCHECK,
-                    Some(WPARAM(usize::from(checked))),
-                    None,
-                )
-            };
-        }
-        let control = Control {
-            handle: handle.0 as usize,
-            font,
-            size: label.size,
-            weight: label.weight,
+            .map_err(io::Error::from)?
         };
-        control.set_font(&control.font);
-        native.controls.push(control);
-    }
-    native.relayout()?;
-    let app = Box::new(window.app_handle().clone());
-    if !unsafe {
-        SetWindowSubclass(
-            parent,
-            Some(settings_proc),
-            1,
-            (&*app as *const AppHandle) as usize,
-        )
-    }
-    .as_bool()
-    {
-        return Err(native_error().into());
-    }
-    // The subclass takes ownership until WM_NCDESTROY.
-    let _ = Box::into_raw(app);
-    native.parent_owned = true;
-    let native = Mutex::new(Some(native));
-    window.on_window_event(move |event| {
-        if let Ok(mut state) = native.lock() {
-            match event {
-                WindowEvent::Destroyed => {
-                    if let Some(state) = state.as_ref() {
-                        state.detach_fonts();
-                    }
-                    // Child HWNDs are parent-owned; this releases only our GDI fonts.
-                    state.take();
-                }
-                WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
-                    if let Some(state) = state.as_mut() {
-                        // A simultaneous native close can make the last resize obsolete.
-                        let _ = state.relayout();
-                    }
-                }
-                _ => {}
-            }
+        if style.contains(WS_TABSTOP)
+            && !unsafe { SetWindowSubclass(child, Some(child_proc), usize::from(field.id), 0) }
+                .as_bool()
+        {
+            return Err(io::Error::last_os_error().into());
         }
+    }
+    let form = Rc::new(Form {
+        hwnd: parent,
+        app: window.app_handle().clone(),
+        scroll: Cell::default(),
+        dpi: Cell::default(),
+        in_layout: Cell::default(),
+        fonts: RefCell::default(),
+        capturing: Cell::default(),
+        chord: RefCell::default(),
+        devices: RefCell::default(),
+        model_ids: RefCell::default(),
+        probe: RefCell::default(),
+        removal: RefCell::default(),
     });
+    form.initialize()?;
+    if !unsafe { SetWindowSubclass(parent, Some(settings_proc), 1, Rc::as_ptr(&form) as usize) }
+        .as_bool()
+    {
+        return Err(io::Error::last_os_error().into());
+    }
+    let _ = Rc::into_raw(form.clone());
+    layout::layout(&form)?;
     Ok(())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn native_settings_preserve_all_catalog_texts() {
-        let text = crate::messages();
-        let labels = settings_controls(text);
-        assert_eq!(
-            labels.iter().map(|label| label.text).collect::<Vec<_>>(),
-            [
-                &text.app_name,
-                &text.settings,
-                &text.settings_placeholder,
-                &text.overlay_show_ready,
-                &text.overlay_hide_from_capture
-            ]
-        );
-    }
-
-    #[test]
-    fn minimum_window_layouts_remain_inside_client_area_at_each_dpi() {
-        for dpi in [96, 120, 144, 192] {
-            let width = scale(400, dpi);
-            let height = scale(300, dpi);
-            let boxes = layout(width, height, dpi);
-            assert_eq!(boxes.len(), 5);
-            assert!(boxes.windows(2).all(|r| r[0].y + r[0].height <= r[1].y));
-            for rect in boxes {
-                assert!(rect.x >= 0 && rect.y >= 0);
-                assert!(rect.width > 0 && rect.height > 0);
-                assert!(rect.x + rect.width <= width);
-                assert!(rect.y + rect.height <= height);
-            }
-        }
-    }
-}
+mod tests;

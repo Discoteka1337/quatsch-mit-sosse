@@ -4,8 +4,8 @@ use crate::{HotkeyConfig, HotkeyEvent};
 use std::cell::RefCell;
 use std::io;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
-use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Weak};
 use std::thread::{self, JoinHandle};
 use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, LRESULT, WAIT_OBJECT_0, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -29,19 +29,54 @@ pub enum HookNotice {
     Stopped,
 }
 
-type Observer = Box<dyn FnMut(HookNotice) + Send>;
+/// Keep this ticket while the requested recording is pending or active. Dropping it
+/// releases only this start, even after the user has already started another recording.
+pub struct RecordingTicket {
+    _active: Arc<()>,
+}
 
-fn action_sender(events: Sender<HotkeyEvent>) -> Observer {
-    Box::new(move |notice| {
+enum Observer {
+    Plain(Box<dyn FnMut(HookNotice) + Send>),
+    WithFeedback(Box<dyn FnMut(HookNotice, Option<RecordingTicket>) + Send>),
+}
+
+impl Observer {
+    fn notify(&mut self, notice: HookNotice) {
+        match self {
+            Self::Plain(send) => send(notice),
+            Self::WithFeedback(send) => send(notice, None),
+        }
+    }
+
+    fn start(&mut self) -> Option<Weak<()>> {
+        let notice = HookNotice::Action(HotkeyEvent::Start);
+        match self {
+            Self::Plain(send) => {
+                send(notice);
+                None
+            }
+            Self::WithFeedback(send) => {
+                let active = Arc::new(());
+                let pending = Arc::downgrade(&active);
+                send(notice, Some(RecordingTicket { _active: active }));
+                Some(pending)
+            }
+        }
+    }
+}
+
+fn action_sender(events: Sender<HotkeyEvent>) -> impl FnMut(HookNotice) + Send {
+    move |notice| {
         if let HookNotice::Action(event) = notice {
             let _ = events.send(event);
         }
-    })
+    }
 }
 
 /// Keeps the hook thread alive. Dropping it removes both hooks and joins the thread.
 pub struct HotkeyHook {
-    shutdown: Arc<OwnedHandle>,
+    wake: Arc<OwnedHandle>,
+    commands: Sender<Option<Control>>,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -60,22 +95,36 @@ impl HotkeyHook {
         config: HotkeyConfig,
         observe: impl FnMut(HookNotice) + Send + 'static,
     ) -> io::Result<Self> {
+        Self::launch(config, Observer::Plain(Box::new(observe)))
+    }
+
+    /// Each Start carries an independent ticket. Other notices carry none.
+    pub fn start_with_feedback(
+        config: HotkeyConfig,
+        observe: impl FnMut(HookNotice, Option<RecordingTicket>) + Send + 'static,
+    ) -> io::Result<Self> {
+        Self::launch(config, Observer::WithFeedback(Box::new(observe)))
+    }
+
+    fn launch(config: HotkeyConfig, observe: Observer) -> io::Result<Self> {
         config.validate()?;
         let (ready, startup) = mpsc::channel();
         // Transfer sole ownership of the unnamed event to an OS handle shared with the worker.
-        let shutdown = Arc::new(unsafe {
-            OwnedHandle::from_raw_handle(CreateEventW(None, true, false, None)?.0)
+        let wake = Arc::new(unsafe {
+            OwnedHandle::from_raw_handle(CreateEventW(None, false, false, None)?.0)
         });
-        let stop = Arc::clone(&shutdown);
+        let signal = Arc::clone(&wake);
+        let (commands, updates) = mpsc::channel();
         let worker = thread::Builder::new()
             .name("qms-hotkey".into())
             .spawn(move || {
-                if let Err(error) = run(config, Box::new(observe), &ready, &stop) {
+                if let Err(error) = run(config, observe, &ready, &signal, updates) {
                     let _ = ready.send(Err(error));
                 }
             })?;
         let hook = Self {
-            shutdown,
+            wake,
+            commands,
             worker: Some(worker),
         };
         startup
@@ -83,14 +132,30 @@ impl HotkeyHook {
             .map_err(|_| io::Error::other("Der Hotkey-Thread wurde beim Start beendet."))??;
         Ok(hook)
     }
+
+    pub fn configure(&self, config: HotkeyConfig) -> io::Result<()> {
+        config.validate()?;
+        self.send(Some(Control::Configure(config)))
+    }
+
+    /// Pass keys through while the focused settings field records a new binding.
+    pub fn capture(&self, active: bool) -> io::Result<()> {
+        self.send(Some(Control::Capture(active)))
+    }
+
+    fn send(&self, command: Option<Control>) -> io::Result<()> {
+        self.commands
+            .send(command)
+            .map_err(|_| io::Error::other("Der Hotkey-Thread wurde beendet."))?;
+        unsafe { SetEvent(HANDLE(self.wake.as_raw_handle()))? };
+        Ok(())
+    }
 }
 
 impl Drop for HotkeyHook {
     fn drop(&mut self) {
         // The event remains valid until both owners have released it.
-        unsafe {
-            let _ = SetEvent(HANDLE(self.shutdown.as_raw_handle()));
-        }
+        let _ = self.send(None);
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
@@ -106,44 +171,85 @@ enum Target {
 
 struct Session {
     machine: StateMachine,
+    capturing: bool,
     target: Target,
     observe: Observer,
+    recording: Option<Weak<()>>,
 }
 
 impl Session {
     fn new(config: HotkeyConfig, observe: Observer) -> Self {
         Self {
             machine: StateMachine::new(config),
+            capturing: false,
             target: Target::Unknown,
             observe,
+            recording: None,
+        }
+    }
+
+    fn reconcile_recording(&mut self) {
+        if self
+            .recording
+            .as_ref()
+            .is_some_and(|ticket| ticket.strong_count() == 0)
+        {
+            self.machine.cancel_recording();
+            self.recording = None;
+        }
+    }
+
+    fn change(&mut self, command: Control) {
+        self.reconcile_recording();
+        if self.machine.cancel_recording() {
+            self.recording = None;
+            self.observe.notify(HookNotice::Action(HotkeyEvent::Cancel));
+        }
+        match command {
+            Control::Configure(config) => self.machine = StateMachine::new(config),
+            Control::Capture(active) => self.capturing = active,
         }
     }
 
     fn set_target(&mut self, target: Target) {
+        self.reconcile_recording();
         if self.target == target {
             return;
         }
         self.target = target;
         if target != Target::Available && self.machine.cancel_recording() {
-            (self.observe)(HookNotice::Action(HotkeyEvent::Cancel));
+            self.recording = None;
+            self.observe.notify(HookNotice::Action(HotkeyEvent::Cancel));
             if target == Target::Unknown {
-                (self.observe)(HookNotice::Unavailable);
+                self.observe.notify(HookNotice::Unavailable);
             }
         }
         if target == Target::Elevated {
-            (self.observe)(HookNotice::Action(HotkeyEvent::ElevatedTarget));
+            self.observe
+                .notify(HookNotice::Action(HotkeyEvent::ElevatedTarget));
         }
     }
 
     fn key(&mut self, vk: u32, down: bool) -> bool {
+        if self.capturing {
+            return false;
+        }
+        self.reconcile_recording();
         let outcome = self.machine.key(vk, down);
         if let Some(event) = outcome.event {
             if self.target == Target::Available {
-                (self.observe)(HookNotice::Action(event));
+                if event == HotkeyEvent::Start {
+                    self.recording = self.observe.start();
+                } else {
+                    if matches!(event, HotkeyEvent::Stop | HotkeyEvent::Cancel) {
+                        self.recording = None;
+                    }
+                    self.observe.notify(HookNotice::Action(event));
+                }
             } else {
                 self.machine.cancel_recording();
                 if self.target == Target::Unknown {
-                    (self.observe)(HookNotice::Unavailable);
+                    self.observe.notify(HookNotice::Unavailable);
                 }
             }
         }
@@ -157,7 +263,21 @@ struct HookState {
     foreground: HWND,
 }
 
+enum Control {
+    Configure(HotkeyConfig),
+    Capture(bool),
+}
+
 impl HookState {
+    fn sync_keys(&mut self) {
+        let altgr = unsafe { GetAsyncKeyState(i32::from(VK_RMENU.0)) } < 0;
+        for vk in self.session.machine.relevant_keys() {
+            let down = !(altgr && vk == u32::from(VK_LCONTROL.0))
+                && unsafe { GetAsyncKeyState(vk as i32) } < 0;
+            self.session.machine.sync_down(vk, down);
+        }
+    }
+
     fn refresh_target(&mut self, window: HWND) {
         self.foreground = window;
         let target = match self.own_level.window_is_higher(window) {
@@ -167,15 +287,9 @@ impl HookState {
         };
         if self.session.target != Target::Available && target == Target::Available {
             // UIPI can hide entire key transitions. Reconcile only shortcut-related keys.
-            let altgr = unsafe { GetAsyncKeyState(i32::from(VK_RMENU.0)) } < 0;
-            for vk in self.session.machine.relevant_keys() {
-                // AltGr may contribute a synthetic down bit for left Control.
-                let down = !(altgr && vk == u32::from(VK_LCONTROL.0))
-                    && unsafe { GetAsyncKeyState(vk as i32) } < 0;
-                self.session.machine.sync_down(vk, down);
-            }
+            self.sync_keys();
         }
-        (self.session.observe)(HookNotice::Foreground {
+        self.session.observe.notify(HookNotice::Foreground {
             window: window.0 as usize,
             available: target == Target::Available,
         });
@@ -190,7 +304,8 @@ fn run(
     config: HotkeyConfig,
     observe: Observer,
     ready: &Sender<io::Result<()>>,
-    stop: &OwnedHandle,
+    wake: &OwnedHandle,
+    updates: Receiver<Option<Control>>,
 ) -> io::Result<()> {
     let own_level = IntegrityLevel::current()?;
     let mut state = HookState {
@@ -227,25 +342,37 @@ fn run(
     state.refresh_target(unsafe { GetForegroundWindow() });
     STATE.set(Some(state));
     let stopped_normally =
-        ready.send(Ok(())).is_err() || pump_messages(HANDLE(stop.as_raw_handle()));
+        ready.send(Ok(())).is_err() || pump_messages(HANDLE(wake.as_raw_handle()), &updates);
     if let Some(mut state) = STATE.take() {
         state.session.set_target(Target::Unknown);
         if !stopped_normally {
-            (state.session.observe)(HookNotice::Stopped);
+            state.session.observe.notify(HookNotice::Stopped);
         }
     }
     Ok(())
 }
 
-fn pump_messages(stop: HANDLE) -> bool {
+fn pump_messages(wake: HANDLE, updates: &Receiver<Option<Control>>) -> bool {
     let mut message = MSG::default();
     // Wait without polling. PeekMessage also delivers callbacks sent to this thread.
     loop {
         let wait = unsafe {
-            MsgWaitForMultipleObjectsEx(Some(&[stop]), INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE)
+            MsgWaitForMultipleObjectsEx(Some(&[wake]), INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE)
         };
+        if wait == WAIT_OBJECT_0 {
+            for command in updates.try_iter() {
+                let Some(command) = command else { return true };
+                STATE.with_borrow_mut(|state| {
+                    if let Some(state) = state {
+                        state.session.change(command);
+                        state.sync_keys();
+                    }
+                });
+            }
+            continue;
+        }
         if wait.0 != WAIT_OBJECT_0.0 + 1 {
-            return wait == WAIT_OBJECT_0;
+            return false;
         }
         if unsafe { PeekMessageW(&mut message, None, 0, 0, PM_REMOVE) }.as_bool() {
             if message.message == WM_QUIT {

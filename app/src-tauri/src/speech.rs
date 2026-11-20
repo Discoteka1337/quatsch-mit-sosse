@@ -8,11 +8,17 @@ use unicode_segmentation::UnicodeSegmentation;
 const PRIMELINE_MODEL: &str = "parakeet-primeline-de-int8";
 pub(super) const DEFAULT_MODEL: &str = PRIMELINE_MODEL;
 pub(super) const FALLBACK_MODEL: &str = "parakeet-v3-int8";
+pub(super) const WHISPER_MODEL: &str = "whisper-large-v3-turbo";
 pub(super) const VAD_MODEL: &str = "silero-vad";
 
 fn select_asr(
+    preferred: Option<&str>,
     mut installed: impl FnMut(&str) -> Result<bool, String>,
 ) -> Result<Option<&'static str>, String> {
+    if let Some(preferred) = preferred {
+        let id = asr_id(preferred).ok_or_else(|| SttError::UnsupportedModel.to_string())?;
+        return Ok(installed(id)?.then_some(id));
+    }
     for id in [DEFAULT_MODEL, FALLBACK_MODEL] {
         if installed(id)? {
             return Ok(Some(id));
@@ -21,16 +27,29 @@ fn select_asr(
     Ok(None)
 }
 
-pub(super) fn installed_asr(manager: &Manager) -> Result<Option<&'static str>, String> {
-    select_asr(|id| manager.is_installed(id).map_err(|error| error.to_string()))
+pub(super) fn asr_id(id: &str) -> Option<&'static str> {
+    [DEFAULT_MODEL, FALLBACK_MODEL, WHISPER_MODEL]
+        .into_iter()
+        .find(|model| *model == id)
 }
 
-pub(super) fn installed_model(manager: &Manager) -> Result<Option<&'static str>, String> {
+pub(super) fn installed_asr(manager: &Manager) -> Result<Option<&'static str>, String> {
+    select_asr(None, |id| {
+        manager.is_installed(id).map_err(|error| error.to_string())
+    })
+}
+
+pub(super) fn installed_model(
+    manager: &Manager,
+    preferred: Option<&str>,
+) -> Result<Option<&'static str>, String> {
     if manager
         .is_installed(VAD_MODEL)
         .map_err(|error| error.to_string())?
     {
-        installed_asr(manager)
+        select_asr(preferred, |id| {
+            manager.is_installed(id).map_err(|error| error.to_string())
+        })
     } else {
         Ok(None)
     }
@@ -159,7 +178,7 @@ impl Microphone {
         }
     }
 
-    fn open(&mut self) -> Result<(), String> {
+    fn open(&mut self, device: DeviceSelection) -> Result<(), String> {
         if self.capture.is_none() {
             let level_health = Arc::clone(&self.health);
             let event_health = Arc::clone(&self.health);
@@ -167,7 +186,7 @@ impl Microphone {
             let on_fault = Arc::clone(&self.on_fault);
             self.capture = Some(
                 AudioCapture::start(
-                    DeviceSelection::Default,
+                    device,
                     move |level| {
                         if locked_health(&level_health).listening() {
                             on_level((level * 100.0).round() as u8);
@@ -186,8 +205,8 @@ impl Microphone {
         Ok(())
     }
 
-    pub(super) fn begin(&mut self) -> Result<(), String> {
-        self.open()?;
+    pub(super) fn begin(&mut self, name: Option<String>) -> Result<(), String> {
+        self.open(name.map_or(DeviceSelection::Default, DeviceSelection::Named))?;
         locked_health(&self.health).begin()?;
         let capture = self.capture.as_ref().expect("open creates the capture");
         capture.start_recording().map_err(|error| error.to_string())
@@ -229,6 +248,18 @@ pub(super) struct Recognizer {
 }
 
 impl Recognizer {
+    pub(super) fn remove_model(&mut self, manager: &Manager, id: &str) -> Result<(), String> {
+        if self
+            .engine
+            .as_ref()
+            .is_some_and(|(loaded, _)| *loaded == id)
+        {
+            // The engine may still own a shared file lease during its idle timeout.
+            self.engine = None;
+        }
+        manager.remove(id).map_err(|e| e.to_string())
+    }
+
     pub(super) fn transcribe(
         &mut self,
         model: &'static str,

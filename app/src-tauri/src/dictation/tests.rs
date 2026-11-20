@@ -1,5 +1,33 @@
 use super::*;
 
+#[test]
+fn mixer_faults_preserve_dictation_and_appear_when_its_status_is_settled() {
+    let mut warning = Some("Mixer nicht erreichbar.".into());
+    for state in [
+        OverlayState::Listening { level: 42 },
+        OverlayState::Processing,
+        OverlayState::Inserting,
+    ] {
+        assert!(!matches!(
+            runtime::with_mixer_warning(state, &mut warning),
+            OverlayState::Error { .. }
+        ));
+    }
+    assert!(
+        matches!(runtime::with_mixer_warning(OverlayState::Ready, &mut warning),
+        OverlayState::Error { message, .. } if message == "Mixer nicht erreichbar.")
+    );
+    assert!(warning.is_none());
+    let failure = OverlayState::Error {
+        message: "Einfügen fehlgeschlagen.".into(),
+        text: "Mein Diktat".into(),
+    };
+    assert!(
+        matches!(runtime::with_mixer_warning(failure, &mut Some("Mixerfehler.".into())),
+        OverlayState::Error { message, text } if message.contains("Mixerfehler.") && message.contains("Einfügen") && text == "Mein Diktat")
+    );
+}
+
 #[derive(Default)]
 struct Fake {
     installed: Option<&'static str>,
@@ -67,7 +95,8 @@ fn setup() -> Session<Fake> {
 #[test]
 fn records_transcribes_then_keeps_the_exact_text_after_failed_insertion() {
     let mut s = setup();
-    s.start(Some(1));
+    assert!(s.start(Some(1)));
+    assert!(!s.start(Some(2)));
     s.level(62);
     assert!(matches!(
         s.ports.overlay,
@@ -76,7 +105,7 @@ fn records_transcribes_then_keeps_the_exact_text_after_failed_insertion() {
     s.stop();
     assert!(s.ports.stopped_before_processing);
     assert!(matches!(s.ports.overlay, OverlayState::Processing));
-    s.start(Some(2));
+    assert!(!s.start(Some(2)));
     s.stop();
     s.recognized(Ok("Grüße aus Köln.".into()));
     assert!(matches!(s.ports.overlay, OverlayState::Inserting));
@@ -98,11 +127,11 @@ fn records_transcribes_then_keeps_the_exact_text_after_failed_insertion() {
 fn missing_models_open_on_demand_and_release_never_starts_a_recording() {
     let mut s = Session::new(Fake::default());
     assert!(s.ports.calls.is_empty());
-    s.start(Some(1));
+    assert!(!s.start(Some(1)));
     s.ports.installed = Some("test");
     s.stop();
     assert_eq!(s.ports.calls, ["models"]);
-    s.start(Some(1));
+    assert!(s.start(Some(1)));
     assert_eq!(s.ports.calls, ["models", "begin"]);
 }
 
@@ -122,7 +151,7 @@ fn microphone_opens_only_for_dictation_and_cancel_releases_it() {
 fn both_start_and_finish_failures_release_the_microphone() {
     let mut s = setup();
     s.ports.fail_begin = true;
-    s.start(Some(1));
+    assert!(!s.start(Some(1)));
     assert_eq!(s.ports.calls, ["begin", "suspend"]);
     s.ports.fail_begin = false;
     s.ports.fail_finish = true;

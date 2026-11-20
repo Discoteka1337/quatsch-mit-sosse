@@ -10,7 +10,7 @@ describe('app scaffold', () => {
     render(App);
     expect(screen.getByRole('heading', { name: de.settings })).toBeTruthy();
     expect(screen.getByText(de.appName)).toBeTruthy();
-    expect(screen.getByText(de.settingsPlaceholder)).toBeTruthy();
+    expect(screen.getByText(de.generalTitle)).toBeTruthy();
     expect(screen.queryByRole('button')).toBeNull();
   });
 
@@ -20,6 +20,6 @@ describe('app scaffold', () => {
     await rerender({ overlay: { showReady: true } });
     expect(screen.getByRole('status', { name: de.overlayReady }).textContent).toBe('');
     expect(screen.queryByRole('heading', { name: de.settings })).toBeNull();
-    expect(screen.queryByText(de.settingsPlaceholder)).toBeNull();
+    expect(screen.queryByText(de.generalTitle)).toBeNull();
   });
 });
