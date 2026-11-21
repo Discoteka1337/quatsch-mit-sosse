@@ -1,0 +1,182 @@
+[[case]]
+name = "Ein Wörterbucheintrag darf wie ein Füllwort klingen"
+input = "Bei Ähm beginnt die Probe"
+rules = ["filler_words"]
+proper_names = ["Ähm"]
+expected = "Bei Ähm beginnt die Probe"
+
+[[case]]
+name = "Die originale Schreibweise eines geschützten Namens bleibt erhalten"
+input = "hm, ich komme zu ÄHM"
+rules = ["filler_words"]
+proper_names = ["Ähm"]
+expected = "ich komme zu ÄHM"
+
+[[case]]
+name = "Am Satzende behält der Eigenname Punkt seine Bedeutung"
+input = "Es spricht Frau Punkt"
+rules = ["voice_commands"]
+proper_names = ["Punkt"]
+expected = "Es spricht Frau Punkt"
+
+[[case]]
+name = "Ein geschützter Mehrwortbefehl bleibt ausgeschrieben"
+input = "NEUE ZEILE"
+rules = ["voice_commands"]
+proper_names = ["Neue Zeile"]
+expected = "NEUE ZEILE"
+
+[[case]]
+name = "Die starke Stufe bewahrt einen Namen aus mehreren Wörtern"
+input = "quasi bei Also Halt"
+rules = ["filler_words"]
+strength = "strong"
+proper_names = ["Also Halt"]
+expected = "bei Also Halt"
+
+[[case]]
+name = "Abstände im Namen bleiben erhalten"
+input = "Bei Also   Halt"
+rules = ["filler_words"]
+strength = "strong"
+proper_names = ["Also Halt"]
+expected = "Bei Also   Halt"
+
+[[case]]
+name = "Ein Name kann ein Komma und zwei konkurrierende Regeln enthalten"
+input = "hm, heute kommt Äh, Punkt"
+rules = ["voice_commands", "filler_words"]
+proper_names = ["Äh, Punkt"]
+expected = "heute kommt Äh, Punkt"
+
+[[case]]
+name = "Auch die Satzzeichen eines Namens sind geschützt"
+input = "Heute kommt Dr. Quasi"
+rules = ["filler_words"]
+strength = "strong"
+proper_names = ["Dr. Quasi"]
+expected = "Heute kommt Dr. Quasi"
+
+[[case]]
+name = "Kürzerer Eintrag vor einem längeren deckt dessen Ende nicht auf"
+input = "Besuch bei Frau Halt Punkt"
+rules = ["filler_words", "voice_commands"]
+strength = "strong"
+proper_names = ["Frau Halt", "Frau Halt Punkt"]
+expected = "Besuch bei Frau Halt Punkt"
+
+[[case]]
+name = "Überlappende Einträge schützen beide Namen vollständig"
+input = "Wir besuchen Also Nord Punkt"
+rules = ["filler_words", "voice_commands"]
+strength = "strong"
+proper_names = ["Also Nord", "Nord Punkt"]
+expected = "Wir besuchen Also Nord Punkt"
+
+[[case]]
+name = "Kein Namensschutz für unvollständige Wörter"
+input = "Superhaus Punkt"
+rules = ["voice_commands"]
+proper_names = ["Haus Punkt"]
+expected = "Superhaus."
+
+[[case]]
+name = "Schutz gilt nur für die vollständige Namensfolge"
+input = "Heute kommt Quasi Süd"
+rules = ["filler_words"]
+strength = "strong"
+proper_names = ["Quasi Nord"]
+expected = "Heute kommt Süd"
+
+[[case]]
+name = "Geschützter Name und anschließender Befehl funktionieren zusammen"
+input = "Frau Punkt Fragezeichen"
+rules = ["voice_commands"]
+proper_names = ["Frau Punkt"]
+expected = "Frau Punkt?"
+
+[[case]]
+name = "Ein einzelner Name wird in jedem Vorkommen geschützt"
+input = "Quasi und quasi Punkt"
+rules = ["voice_commands", "filler_words"]
+strength = "strong"
+proper_names = ["Quasi"]
+expected = "Quasi und quasi."
+
+[[case]]
+name = "Ein Eigenname kann Ziffern enthalten"
+input = "hm, also 007 Punkt"
+rules = ["voice_commands", "filler_words"]
+strength = "strong"
+proper_names = ["Also 007 Punkt"]
+expected = "also 007 Punkt"
+
+[[case]]
+name = "Deutsche Tausenderpunkte und Dezimalkomma bleiben am Betrag"
+input = "ähm, genau 1.234.567,80 Euro Punkt"
+rules = ["voice_commands", "filler_words"]
+expected = "genau 1.234.567,80 Euro."
+
+[[case]]
+name = "Vorzeichen und führende Nullen werden bewahrt"
+input = "hm, die Differenz ist −000,050"
+rules = ["filler_words"]
+expected = "die Differenz ist −000,050"
+
+[[case]]
+name = "Eine Uhrzeit behält Doppelpunkte und führende Nullen"
+input = "Ankunft 07:05:09 Punkt"
+rules = ["voice_commands"]
+expected = "Ankunft 07:05:09."
+
+[[case]]
+name = "Ein Datum bleibt neben beiden aktiven Regeln intakt"
+input = "öhm, am 03.02.2026 Fragezeichen"
+rules = ["voice_commands", "filler_words"]
+expected = "am 03.02.2026?"
+
+[[case]]
+name = "Zahl vor einem Füllwort behält das Dezimalkomma"
+input = "Es waren 3,14 äh Meter"
+rules = ["filler_words"]
+expected = "Es waren 3,14 Meter"
+
+[[case]]
+name = "Zwei Dezimalzahlen bewahren ihre getrennten Nachkommastellen"
+input = "3,140 und 2,7180 Ausrufezeichen"
+rules = ["voice_commands"]
+expected = "3,140 und 2,7180!"
+
+[[case]]
+name = "Schmales geschütztes Leerzeichen in der Zahl bleibt bestehen"
+input = "hm, das sind 12\u202f345,60 Euro"
+rules = ["filler_words"]
+expected = "das sind 12\u202f345,60 Euro"
+
+[[case]]
+name = "Unicode-Ziffern bleiben unverändert"
+input = "hm, zähle ١٢٣ Punkt"
+rules = ["voice_commands", "filler_words"]
+expected = "zähle ١٢٣."
+
+[[case]]
+name = "Zahl im Namen teilt einen mehrteiligen Wörterbucheintrag nicht"
+input = "Halle 12 Quasi Punkt"
+rules = ["voice_commands", "filler_words"]
+strength = "strong"
+proper_names = ["Halle 12 Quasi"]
+expected = "Halle 12 Quasi."
+
+[[case]]
+name = "Ein zerlegter Umlaut im Namen bleibt bytegetreu erhalten"
+input = "Es spricht A\u0308hm"
+rules = ["filler_words"]
+proper_names = ["Ähm"]
+expected = "Es spricht A\u0308hm"
+
+[[case]]
+name = "Der Bindestrich in einer alphanumerischen Bezeichnung bleibt eine Wortverbindung"
+input = "Quasi-12 und Äh-17"
+rules = ["voice_commands", "filler_words"]
+strength = "strong"
+expected = "Quasi-12 und Äh-17"

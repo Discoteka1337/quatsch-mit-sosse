@@ -3,3 +3,11 @@ name = "quatsch-mit-sosse-textfx"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+
+[dependencies]
+icu_normalizer = { version = "2.4.0", default-features = false, features = ["compiled_data", "utf8_iter"] }
+unicode-ident = "1"
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"

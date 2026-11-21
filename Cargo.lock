@@ -3379,6 +3379,12 @@ dependencies = [
 [[package]]
 name = "quatsch-mit-sosse-textfx"
 version = "0.1.0"
+dependencies = [
+ "icu_normalizer",
+ "serde",
+ "toml 0.8.2",
+ "unicode-ident",
+]
 
 [[package]]
 name = "quatsch-mit-sosse-vad"

@@ -1,0 +1,54 @@
+[[case]]
+name = "Ohne aktive Regel bleibt das Transkript zeichengetreu"
+input = "  Ähm,  der Punkt\tist 17,50.\r\nPunkt  "
+rules = []
+expected = "  Ähm,  der Punkt\tist 17,50.\r\nPunkt  "
+
+[[case]]
+name = "Satzende wird vor der Füllwortbereinigung bestimmt"
+input = "Das klappt Punkt ähm"
+rules = ["filler_words", "voice_commands"]
+expected = "Das klappt Punkt"
+
+[[case]]
+name = "Beide Regeln in einer Rückfrage"
+input = "Hast du, ähm, Zeit Fragezeichen"
+rules = ["filler_words", "voice_commands"]
+expected = "Hast du Zeit?"
+
+[[case]]
+name = "Leeres Diktat bei allen eingeschalteten Regeln"
+input = ""
+rules = ["voice_commands", "dictionary", "filler_words", "self_corrections", "numbers", "punctuation", "snippets", "style"]
+expected = ""
+
+[[case]]
+name = "Absatz und Einrückung ohne Treffer"
+input = "  Das bleibt.\r\n\r\n\tAuch  hier.  "
+rules = ["voice_commands", "filler_words"]
+expected = "  Das bleibt.\r\n\r\n\tAuch  hier.  "
+
+[[case]]
+name = "Starke Stufe wirkt nur bei eingeschalteter Füllwortregel"
+input = "Das ist halt quasi fertig Punkt"
+rules = ["voice_commands"]
+strength = "strong"
+expected = "Das ist halt quasi fertig."
+
+[[case]]
+name = "Ein ausdrücklich diktiertes Komma überlebt das letzte Füllwort"
+input = "Liebe Mia ähm Komma"
+rules = ["voice_commands", "filler_words"]
+expected = "Liebe Mia,"
+
+[[case]]
+name = "Ein diktiertes Komma trennt zwei Teile trotz Füllwort"
+input = "Brot ähm Komma. Milch und Eier"
+rules = ["filler_words", "voice_commands"]
+expected = "Brot, Milch und Eier"
+
+[[case]]
+name = "Das Komma einer Zahlenaufzählung bleibt erhalten"
+input = "Heute kommen 3, ähm, 5 und 7 Gäste."
+rules = ["filler_words"]
+expected = "Heute kommen 3, 5 und 7 Gäste."

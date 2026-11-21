@@ -1,0 +1,380 @@
+[[case]]
+name = "einzelner Punkt"
+input = "Punkt"
+rules = ["voice_commands"]
+expected = "."
+
+[[case]]
+name = "einzelnes Komma"
+input = "Komma"
+rules = ["voice_commands"]
+expected = ","
+
+[[case]]
+name = "einzelnes Fragezeichen"
+input = "Fragezeichen"
+rules = ["voice_commands"]
+expected = "?"
+
+[[case]]
+name = "einzelnes Ausrufezeichen"
+input = "Ausrufezeichen"
+rules = ["voice_commands"]
+expected = "!"
+
+[[case]]
+name = "einzelner Doppelpunkt"
+input = "Doppelpunkt"
+rules = ["voice_commands"]
+expected = ":"
+
+[[case]]
+name = "einzelner Zeilenwechsel"
+input = "neue Zeile"
+rules = ["voice_commands"]
+expected = "\n"
+
+[[case]]
+name = "einzelner Absatzwechsel"
+input = "neuer Absatz"
+rules = ["voice_commands"]
+expected = "\n\n"
+
+[[case]]
+name = "deutsches öffnendes Anführungszeichen"
+input = "Anführungszeichen auf"
+rules = ["voice_commands"]
+expected = "„"
+
+[[case]]
+name = "deutsches schließendes Anführungszeichen"
+input = "Anführungszeichen zu"
+rules = ["voice_commands"]
+expected = "“"
+
+[[case]]
+name = "öffnende Klammer"
+input = "Klammer auf"
+rules = ["voice_commands"]
+expected = "("
+
+[[case]]
+name = "schließende Klammer"
+input = "Klammer zu"
+rules = ["voice_commands"]
+expected = ")"
+
+[[case]]
+name = "Punkt am Äußerungsende"
+input = "Morgen geht es los Punkt"
+rules = ["voice_commands"]
+expected = "Morgen geht es los."
+
+[[case]]
+name = "Komma am Äußerungsende"
+input = "Liebe Frau Berg Komma"
+rules = ["voice_commands"]
+expected = "Liebe Frau Berg,"
+
+[[case]]
+name = "Fragezeichen am Äußerungsende"
+input = "Kommst du mit Fragezeichen"
+rules = ["voice_commands"]
+expected = "Kommst du mit?"
+
+[[case]]
+name = "Ausrufezeichen am Äußerungsende"
+input = "Vorsicht Ausrufezeichen"
+rules = ["voice_commands"]
+expected = "Vorsicht!"
+
+[[case]]
+name = "Doppelpunkt am Äußerungsende"
+input = "Wir brauchen Folgendes Doppelpunkt"
+rules = ["voice_commands"]
+expected = "Wir brauchen Folgendes:"
+
+[[case]]
+name = "Zeilenwechsel nach dem Text"
+input = "Bis morgen neue Zeile"
+rules = ["voice_commands"]
+expected = "Bis morgen\n"
+
+[[case]]
+name = "Absatz nach dem Text"
+input = "Erster Abschnitt neuer Absatz"
+rules = ["voice_commands"]
+expected = "Erster Abschnitt\n\n"
+
+[[case]]
+name = "Zitat innerhalb eines Diktats"
+input = "Sie sagte Anführungszeichen auf. Guten Morgen Anführungszeichen zu."
+rules = ["voice_commands"]
+expected = "Sie sagte „Guten Morgen“"
+
+[[case]]
+name = "Einschub innerhalb eines Diktats"
+input = "Termin Klammer auf. Freitag Klammer zu."
+rules = ["voice_commands"]
+expected = "Termin (Freitag)"
+
+[[case]]
+name = "Großbuchstaben mit Umlaut"
+input = "ANFÜHRUNGSZEICHEN AUF"
+rules = ["voice_commands"]
+expected = "„"
+
+[[case]]
+name = "gemischte Großschreibung"
+input = "Heute pUnKt"
+rules = ["voice_commands"]
+expected = "Heute."
+
+[[case]]
+name = "Leerraum vor einer Wortgruppe"
+input = "Morgen \t  neue\tZeile"
+rules = ["voice_commands"]
+expected = "Morgen\n"
+
+[[case]]
+name = "automatischer Schlusspunkt"
+input = "Das war es Punkt."
+rules = ["voice_commands"]
+expected = "Das war es."
+
+[[case]]
+name = "automatisches Satzzeichen am Frageende"
+input = "Schon fertig Fragezeichen."
+rules = ["voice_commands"]
+expected = "Schon fertig?"
+
+[[case]]
+name = "zwei Satzenden"
+input = "Schon fertig Fragezeichen? Sehr gut Ausrufezeichen!"
+rules = ["voice_commands"]
+expected = "Schon fertig? Sehr gut!"
+
+[[case]]
+name = "Schlusspunkt vor neuem Absatz"
+input = "Erster Teil neuer Absatz. Zweiter Teil Punkt"
+rules = ["voice_commands"]
+expected = "Erster Teil\n\nZweiter Teil."
+
+[[case]]
+name = "gesprochener Zeilenwechsel vor Folgesatz"
+input = "Erstens neue Zeile. Zweitens"
+rules = ["voice_commands"]
+expected = "Erstens\nZweitens"
+
+[[case]]
+name = "vorhandene Windows-Zeilenenden"
+input = "Hallo Punkt\r\nWeiter Punkt"
+rules = ["voice_commands"]
+expected = "Hallo.\r\nWeiter."
+
+[[case]]
+name = "unbeteiligten Leerraum erhalten"
+input = "Ein  anderer\t Text   Punkt"
+rules = ["voice_commands"]
+expected = "Ein  anderer\t Text."
+
+[[case]]
+name = "Punkt als Satzglied"
+input = "der Punkt ist wichtig"
+rules = ["voice_commands"]
+expected = "der Punkt ist wichtig"
+
+[[case]]
+name = "Befehlswort am Satzanfang mit Fortsetzung"
+input = "Komma und Punkt sind Zeichen"
+rules = ["voice_commands"]
+expected = "Komma und Punkt sind Zeichen"
+
+[[case]]
+name = "normale Wortgruppe innerhalb des Satzes"
+input = "Eine neue Zeile beginnt hier."
+rules = ["voice_commands"]
+expected = "Eine neue Zeile beginnt hier."
+
+[[case]]
+name = "normale Wortgruppe am Satzanfang"
+input = "Neuer Absatz bedeutet mehr Abstand."
+rules = ["voice_commands"]
+expected = "Neuer Absatz bedeutet mehr Abstand."
+
+[[case]]
+name = "Komma vor Nebensatz kein Satzende"
+input = "Das ist der Punkt, den ich meine."
+rules = ["voice_commands"]
+expected = "Das ist der Punkt, den ich meine."
+
+[[case]]
+name = "Doppelpunkt ist kein Satzende"
+input = "Beispiel Punkt: Das Wort bleibt."
+rules = ["voice_commands"]
+expected = "Beispiel Punkt: Das Wort bleibt."
+
+[[case]]
+name = "Befehl als Teil eines Wortes"
+input = "Schwerpunkt"
+rules = ["voice_commands"]
+expected = "Schwerpunkt"
+
+[[case]]
+name = "Pluralform"
+input = "Viele Fragezeichen sind auffällig."
+rules = ["voice_commands"]
+expected = "Viele Fragezeichen sind auffällig."
+
+[[case]]
+name = "unvollständige Wortgruppe"
+input = "Die Klammer"
+rules = ["voice_commands"]
+expected = "Die Klammer"
+
+[[case]]
+name = "kein Befehl über Zeilen hinweg"
+input = "neue\nZeile"
+rules = ["voice_commands"]
+expected = "neue\nZeile"
+
+[[case]]
+name = "Bindestrich im Namen"
+input = "Treff-Punkt"
+rules = ["voice_commands"]
+expected = "Treff-Punkt"
+
+[[case]]
+name = "Unterstrich im Bezeichner"
+input = "mein_Punkt"
+rules = ["voice_commands"]
+expected = "mein_Punkt"
+
+[[case]]
+name = "Punkt im Bezeichner"
+input = "datei.Punkt"
+rules = ["voice_commands"]
+expected = "datei.Punkt"
+
+[[case]]
+name = "Abkürzung ohne Wortabstand"
+input = "Punkt.de bleibt bestehen."
+rules = ["voice_commands"]
+expected = "Punkt.de bleibt bestehen."
+
+[[case]]
+name = "Wortgruppe verlangt zwei ganze Wörter"
+input = "Die unklare Klammer auflösen."
+rules = ["voice_commands"]
+expected = "Die unklare Klammer auflösen."
+
+[[case]]
+name = "eingebetteter und abschließender Punkt"
+input = "Der Punkt ist erledigt Punkt"
+rules = ["voice_commands"]
+expected = "Der Punkt ist erledigt."
+
+[[case]]
+name = "Satzzeichen vor schließendem Anführungszeichen"
+input = "Sie sagt: „Stopp Ausrufezeichen.“"
+rules = ["voice_commands"]
+expected = "Sie sagt: „Stopp!“"
+
+[[case]]
+name = "leeres Diktat"
+input = ""
+rules = ["voice_commands"]
+expected = ""
+
+[[case]]
+name = "geschützter Name am Satzende"
+input = "Lieferant Nord Punkt"
+rules = ["voice_commands"]
+proper_names = ["Nord Punkt"]
+expected = "Lieferant Nord Punkt"
+
+[[case]]
+name = "geschützter Befehlsname mit zweitem Befehl"
+input = "Firma Komma Punkt"
+rules = ["voice_commands"]
+proper_names = ["Komma"]
+expected = "Firma Komma."
+
+[[case]]
+name = "Zahl neben Befehl"
+input = "Der Wert ist 12,50 Komma"
+rules = ["voice_commands"]
+expected = "Der Wert ist 12,50,"
+
+[[case]]
+name = "erkanntes Komma am Äußerungsende"
+input = "Liebe Isa Komma,"
+rules = ["voice_commands"]
+expected = "Liebe Isa,"
+
+[[case]]
+name = "Befehl vor schließendem Zitat"
+input = "Sie sagt: „Gut Punkt“"
+rules = ["voice_commands"]
+expected = "Sie sagt: „Gut.“"
+
+[[case]]
+name = "Zitierter Fachbegriff im laufenden Satz"
+input = "Wir schreiben „Punkt“ an die Tafel."
+rules = ["voice_commands"]
+expected = "Wir schreiben „Punkt“ an die Tafel."
+
+[[case]]
+name = "Befehl mit zerlegtem Umlaut"
+input = "Anfu\u0308hrungszeichen zu"
+rules = ["voice_commands"]
+expected = "“"
+
+[[case]]
+name = "Schließbefehl unmittelbar nach erzeugter Klammer"
+input = "Klammer auf. Klammer zu."
+rules = ["voice_commands"]
+expected = "()"
+
+[[case]]
+name = "automatisches Fragezeichen vor erneutem Sprachbefehl"
+input = "Kommst du mit? Fragezeichen."
+rules = ["voice_commands"]
+expected = "Kommst du mit?"
+
+[[case]]
+name = "Pausenkomma vor ausdrücklich diktiertem Schlusspunkt"
+input = "Ich komme, Punkt."
+rules = ["voice_commands"]
+expected = "Ich komme."
+
+[[case]]
+name = "Satzzeichen im geschützten Sendungstitel"
+input = "Heute läuft Wer wird Millionär? Ausrufezeichen"
+rules = ["voice_commands"]
+proper_names = ["Wer wird Millionär?"]
+expected = "Heute läuft Wer wird Millionär?!"
+
+[[case]]
+name = "Doppelpunkt vor diktiertem Zitat bleibt erhalten"
+input = "Er sagte: Anführungszeichen auf"
+rules = ["voice_commands"]
+expected = "Er sagte: „"
+
+[[case]]
+name = "ausdrücklich diktierte Zeichenfolge bleibt erhalten"
+input = "Wirklich Fragezeichen. Ausrufezeichen."
+rules = ["voice_commands"]
+expected = "Wirklich?!"
+
+[[case]]
+name = "Ordinalpunkt im Datum vor Fragezeichen"
+input = "Treffen wir uns am 17. Fragezeichen"
+rules = ["voice_commands"]
+expected = "Treffen wir uns am 17.?"
+
+[[case]]
+name = "Satzpunkt hinter einer Zahl wird nicht verdoppelt"
+input = "Das sind 17. Punkt."
+rules = ["voice_commands"]
+expected = "Das sind 17."

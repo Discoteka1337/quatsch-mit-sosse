@@ -1,0 +1,361 @@
+[[case]]
+name = "verzögerung-am-anfang"
+input = "äh das passt"
+rules = ["filler_words"]
+expected = "das passt"
+
+[[case]]
+name = "abbruch-am-ende"
+input = "Das reicht ähm"
+rules = ["filler_words"]
+expected = "Das reicht"
+
+[[case]]
+name = "kurzes-hm-im-satz"
+input = "Wir gehen hm heute."
+rules = ["filler_words"]
+expected = "Wir gehen heute."
+
+[[case]]
+name = "öhm-mit-komma"
+input = "Öhm, ich bin bereit."
+rules = ["filler_words"]
+expected = "ich bin bereit."
+
+[[case]]
+name = "alternative-schreibung"
+input = "Ich ehm bleibe hier."
+rules = ["filler_words"]
+expected = "Ich bleibe hier."
+
+[[case]]
+name = "grossbuchstaben"
+input = "Das ist ÄHM gut."
+rules = ["filler_words"]
+expected = "Das ist gut."
+
+[[case]]
+name = "nur-füllwort"
+input = "Hm"
+rules = ["filler_words"]
+expected = ""
+
+[[case]]
+name = "nur-füllwörter-und-kommas"
+input = "  äh, öhm, hm  "
+rules = ["filler_words"]
+expected = ""
+
+[[case]]
+name = "komma-vor-füllwort"
+input = "Ich, äh arbeite."
+rules = ["filler_words"]
+expected = "Ich arbeite."
+
+[[case]]
+name = "komma-nach-füllwort"
+input = "Wir bleiben ähm, hier."
+rules = ["filler_words"]
+expected = "Wir bleiben hier."
+
+[[case]]
+name = "kommapaar-um-einschub"
+input = "Das ist, ähm, richtig."
+rules = ["filler_words"]
+expected = "Das ist richtig."
+
+[[case]]
+name = "mehrere-einschübe"
+input = "Wir, äh, hm, treffen ehm euch."
+rules = ["filler_words"]
+expected = "Wir treffen euch."
+
+[[case]]
+name = "direkt-vor-satzpunkt"
+input = "Ich komme, ähm."
+rules = ["filler_words"]
+expected = "Ich komme."
+
+[[case]]
+name = "vor-fragezeichen"
+input = "Geht das hm?"
+rules = ["filler_words"]
+expected = "Geht das?"
+
+[[case]]
+name = "vor-ausrufezeichen"
+input = "Komm schon äh!"
+rules = ["filler_words"]
+expected = "Komm schon!"
+
+[[case]]
+name = "nach-öffnender-klammer"
+input = "Das ist (ähm, wirklich) gut."
+rules = ["filler_words"]
+expected = "Das ist (wirklich) gut."
+
+[[case]]
+name = "vor-schliessender-klammer"
+input = "Das ist (gut, hm) so."
+rules = ["filler_words"]
+expected = "Das ist (gut) so."
+
+[[case]]
+name = "unveränderte-schreibung"
+input = "ähm, morgen ist Montag."
+rules = ["filler_words"]
+expected = "morgen ist Montag."
+
+[[case]]
+name = "abstände-im-einschub"
+input = "Wir   ähm   helfen."
+rules = ["filler_words"]
+expected = "Wir helfen."
+
+[[case]]
+name = "abstände-ausserhalb"
+input = "Abschnitt  A bleibt; wir ähm helfen  morgen."
+rules = ["filler_words"]
+expected = "Abschnitt  A bleibt; wir helfen  morgen."
+
+[[case]]
+name = "zeilenumbruch-bleibt"
+input = "Tag eins, ähm\näh, Tag zwei"
+rules = ["filler_words"]
+expected = "Tag eins\nTag zwei"
+
+[[case]]
+name = "windows-zeilenumbruch"
+input = "Hier hm\r\ndort"
+rules = ["filler_words"]
+expected = "Hier\r\ndort"
+
+[[case]]
+name = "satzkomma-vor-dass"
+input = "Ich hoffe, ähm, dass es klappt."
+rules = ["filler_words"]
+expected = "Ich hoffe, dass es klappt."
+
+[[case]]
+name = "satzkomma-vor-weil"
+input = "Ich komme, hm, weil ich Zeit habe."
+rules = ["filler_words"]
+expected = "Ich komme, weil ich Zeit habe."
+
+[[case]]
+name = "kein-satzkomma-erfinden"
+input = "Ich hoffe ähm dass es klappt."
+rules = ["filler_words"]
+expected = "Ich hoffe dass es klappt."
+
+[[case]]
+name = "übrige-satzzeichen"
+input = "Erstens: äh, Brot; zweitens: Tee."
+rules = ["filler_words"]
+expected = "Erstens: Brot; zweitens: Tee."
+
+[[case]]
+name = "ohne-leerzeichen"
+input = "Ja,ähm,genau."
+rules = ["filler_words"]
+expected = "Ja genau."
+
+[[case]]
+name = "nicht-auf-teilwörter-anwenden"
+input = "Ähnlich nehmen Böhmen Ohm als Einheit."
+rules = ["filler_words"]
+expected = "Ähnlich nehmen Böhmen Ohm als Einheit."
+
+[[case]]
+name = "zusammengesetzte-begriffe"
+input = "Das Ähm-Geräusch und das Dauer-Hm bleiben."
+rules = ["filler_words"]
+expected = "Das Ähm-Geräusch und das Dauer-Hm bleiben."
+
+[[case]]
+name = "typografischer-bindestrich"
+input = "Ein Ähm‑Laut."
+rules = ["filler_words"]
+expected = "Ein Ähm‑Laut."
+
+[[case]]
+name = "ähnliche-laute"
+input = "aha, mhm, hmm, ähhh, öh, eh, um"
+rules = ["filler_words"]
+expected = "aha, mhm, hmm, ähhh, öh, eh, um"
+
+[[case]]
+name = "schwach-erhält-also-halt-quasi"
+input = "Also, das ist halt quasi fertig."
+rules = ["filler_words"]
+expected = "Also, das ist halt quasi fertig."
+
+[[case]]
+name = "stark-entfernt-also"
+input = "Also, wir gehen."
+rules = ["filler_words"]
+expected = "wir gehen."
+strength = "strong"
+
+[[case]]
+name = "stark-entfernt-halt"
+input = "Das ist halt teuer."
+rules = ["filler_words"]
+expected = "Das ist teuer."
+strength = "strong"
+
+[[case]]
+name = "stark-entfernt-quasi"
+input = "Wir sind quasi fertig."
+rules = ["filler_words"]
+expected = "Wir sind fertig."
+strength = "strong"
+
+[[case]]
+name = "stark-gemischt"
+input = "ALSO, ähm, wir fahren halt quasi sofort."
+rules = ["filler_words"]
+expected = "wir fahren sofort."
+strength = "strong"
+
+[[case]]
+name = "stark-erhält-wortbestandteile"
+input = "Anhalt, Quasimodo und also_auch bleiben."
+rules = ["filler_words"]
+expected = "Anhalt, Quasimodo und also_auch bleiben."
+strength = "strong"
+
+[[case]]
+name = "stark-erhält-bindestrichbegriff"
+input = "Das Halt-Signal bleibt."
+rules = ["filler_words"]
+expected = "Das Halt-Signal bleibt."
+strength = "strong"
+
+[[case]]
+name = "unverwandte-kommas"
+input = "Eins, zwei, drei und, ähm, vier."
+rules = ["filler_words"]
+expected = "Eins, zwei, drei und vier."
+
+[[case]]
+name = "zahlen-und-namen"
+input = "Ich zahle hm 1.234,50 Euro an Halt."
+rules = ["filler_words"]
+expected = "Ich zahle 1.234,50 Euro an Halt."
+strength = "strong"
+proper_names = ["Halt"]
+
+[[case]]
+name = "mehrteiliger-eigenname"
+input = "Wir ehm besuchen Haus Quasi morgen."
+rules = ["filler_words"]
+expected = "Wir besuchen Haus Quasi morgen."
+strength = "strong"
+proper_names = ["Haus Quasi"]
+
+[[case]]
+name = "nur-geschützter-eintrag"
+input = "Ähm & Söhne"
+rules = ["filler_words"]
+expected = "Ähm & Söhne"
+proper_names = ["Ähm & Söhne"]
+
+[[case]]
+name = "abschliessendes-leerzeichen-ohne-änderung"
+input = "Heute,  morgen  "
+rules = ["filler_words"]
+expected = "Heute,  morgen  "
+
+[[case]]
+name = "leerer-text"
+input = ""
+rules = ["filler_words"]
+expected = ""
+
+[[case]]
+name = "ausgeschaltete-regel"
+input = "Wir ähm üben halt."
+rules = []
+expected = "Wir ähm üben halt."
+strength = "strong"
+
+[[case]]
+name = "punkt-am-satzwechsel"
+input = "Das reicht. Ähm, weiter."
+rules = ["filler_words"]
+expected = "Das reicht. weiter."
+
+[[case]]
+name = "zeileneinrückung-erhalten"
+input = "Erster Teil\n    ähm, Abschnitt zwei"
+rules = ["filler_words"]
+expected = "Erster Teil\n    Abschnitt zwei"
+
+[[case]]
+name = "geschützter-name-nach-komma"
+input = "Ich frage, ähm, Dr. Halt."
+rules = ["filler_words"]
+expected = "Ich frage Dr. Halt."
+strength = "strong"
+proper_names = ["Dr. Halt"]
+
+[[case]]
+name = "zerlegter-umlaut"
+input = "Ich a\u0308hm, bleibe hier."
+rules = ["filler_words"]
+expected = "Ich bleibe hier."
+
+[[case]]
+name = "komma-am-ende-eines-wenn-satzes"
+input = "Wenn es regnet, ähm, bleiben wir daheim."
+rules = ["filler_words"]
+expected = "Wenn es regnet, bleiben wir daheim."
+
+[[case]]
+name = "kein-komma-in-offenem-wenn-satz"
+input = "Wenn es, ähm, morgen regnet, bleiben wir daheim."
+rules = ["filler_words"]
+expected = "Wenn es morgen regnet, bleiben wir daheim."
+
+[[case]]
+name = "kein-komma-zwischen-subjekt-und-infinitiv"
+input = "Wenn wir, ähm, anfangen, geht es schnell."
+rules = ["filler_words"]
+expected = "Wenn wir anfangen, geht es schnell."
+
+[[case]]
+name = "komma-vor-dann-im-hauptsatz"
+input = "Wenn es schneit, äh, dann fahre ich später."
+rules = ["filler_words"]
+expected = "Wenn es schneit, dann fahre ich später."
+
+[[case]]
+name = "füller-in-begonnenem-nebensatz-vor-dann"
+input = "Wenn das Wetter, ähm, dann besser wird, komme ich."
+rules = ["filler_words"]
+expected = "Wenn das Wetter dann besser wird, komme ich."
+
+[[case]]
+name = "nebensatz-nach-satzgrenze"
+input = "Ja. Obwohl es regnet, äh, kommt er vorbei."
+rules = ["filler_words"]
+expected = "Ja. Obwohl es regnet, kommt er vorbei."
+
+[[case]]
+name = "kein-komma-ohne-vorlage-am-nebensatzende"
+input = "Wenn es regnet ähm bleiben wir daheim."
+rules = ["filler_words"]
+expected = "Wenn es regnet bleiben wir daheim."
+
+[[case]]
+name = "kein-komma-vor-präposition-und-pronomen"
+input = "Wenn ich abends, äh, mit ihr spreche, hilft das."
+rules = ["filler_words"]
+expected = "Wenn ich abends mit ihr spreche, hilft das."
+
+[[case]]
+name = "kein-komma-nach-zweitem-einschub"
+input = "Wenn es, äh, heute regnet, ähm, bleiben wir daheim."
+rules = ["filler_words"]
+expected = "Wenn es heute regnet, bleiben wir daheim."
