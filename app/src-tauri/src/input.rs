@@ -27,7 +27,7 @@ pub(super) enum Action {
 pub(super) struct Target(InsertTarget);
 
 impl Target {
-    pub(super) fn insert(self, text: &str) -> Result<(), InjectError> {
+    pub(super) fn insert(self, text: &str, cursor: Option<usize>) -> Result<(), InjectError> {
         self.0.check_foreground()?;
         // A repeat shortcut fires on key-down. SendInput must see released modifiers.
         await_release(
@@ -39,7 +39,8 @@ impl Target {
             || std::thread::sleep(Duration::from_millis(15)),
             100,
         )?;
-        self.0.insert(text, &InjectConfig::load()?)?;
+        self.0
+            .insert_with_cursor(text, &InjectConfig::load()?, cursor)?;
         Ok(())
     }
 }

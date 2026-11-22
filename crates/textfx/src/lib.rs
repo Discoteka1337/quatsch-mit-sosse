@@ -6,10 +6,12 @@ mod fillers;
 mod german_spelling;
 mod numbers;
 mod punctuation;
+mod snippets;
 mod tokens;
 
 pub use dictionary::software_dictation_pipeline;
 pub use dictionary_entries::DictionaryEntry;
+pub use snippets::{Snippet, SnippetValue, snippet_trigger_key};
 use std::ops::Range;
 use tokens::Kind;
 
@@ -18,6 +20,8 @@ pub struct CleanupResult {
     pub text: String,
     /// Nonoverlapping UTF-8 byte ranges in `text`, in reading order.
     pub uncertain: Vec<Range<usize>>,
+    /// UTF-8 byte offset of the first requested caret in the finished text.
+    pub cursor: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,6 +79,7 @@ pub struct Pipeline {
     pub proper_names: Vec<String>,
     /// Canonical spellings, optional written replacements and spoken variants.
     pub dictionary: Vec<DictionaryEntry>,
+    pub snippets: Vec<Snippet>,
     /// Restore observed primeLine spellings of ß in unprotected words.
     pub primeline_spelling: bool,
 }
@@ -94,6 +99,7 @@ impl Pipeline {
             digits_from: 13,
             proper_names: Vec::new(),
             dictionary: Vec::new(),
+            snippets: Vec::new(),
             primeline_spelling: false,
         };
         for rule in rules {
@@ -115,10 +121,29 @@ impl Pipeline {
     }
 
     pub fn apply_with_review(&self, input: &str) -> CleanupResult {
+        self.apply_with_snippet_values(input, |_| None)
+    }
+
+    /// Resolves external placeholder values only when a matching template uses them.
+    pub fn apply_with_snippets(
+        &self,
+        input: &str,
+        mut value: impl FnMut(SnippetValue) -> String,
+    ) -> CleanupResult {
+        self.apply_with_snippet_values(input, |kind| Some(value(kind)))
+    }
+
+    /// Keeps the original sentence when a requested placeholder is unavailable.
+    pub fn apply_with_snippet_values(
+        &self,
+        input: &str,
+        mut value: impl FnMut(SnippetValue) -> Option<String>,
+    ) -> CleanupResult {
         if !self.enabled.contains(&true) && !self.primeline_spelling {
             return CleanupResult {
                 text: input.to_owned(),
                 uncertain: Vec::new(),
+                cursor: None,
             };
         }
         let replace = self.is_enabled(Rule::Dictionary);
@@ -148,8 +173,8 @@ impl Pipeline {
                     Rule::SelfCorrections => corrections::apply(&mut tokens),
                     Rule::Numbers => numbers::apply(&mut tokens, self.digits_from),
                     Rule::Punctuation => punctuation::apply(&mut tokens),
-                    // These stages have a fixed position for subsequent implementation steps.
-                    Rule::Snippets | Rule::Style => {}
+                    Rule::Snippets => snippets::apply(&mut tokens, &self.snippets, &mut value),
+                    Rule::Style => {}
                 }
             }
         }
@@ -158,13 +183,20 @@ impl Pipeline {
         }
         let mut text = String::with_capacity(input.len());
         let mut uncertain = Vec::new();
+        let mut cursor = None;
         for token in tokens {
             let start = text.len();
             text.push_str(&token.text);
             if token.kind == Kind::Uncertain {
                 uncertain.push(start..text.len());
+            } else if token.kind == Kind::Cursor {
+                cursor.get_or_insert(start);
             }
         }
-        CleanupResult { text, uncertain }
+        CleanupResult {
+            text,
+            uncertain,
+            cursor,
+        }
     }
 }

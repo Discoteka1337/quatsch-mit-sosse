@@ -78,17 +78,12 @@ fn provisions_schema_and_seeds_once_even_on_simultaneous_open() {
             .is_empty()
     );
     let db = Connection::open(&path).unwrap();
-    assert_eq!(version(&db), 1);
-    db.execute(
-        "INSERT INTO snippets (trigger,text) VALUES ('qm', 'Guten Morgen!')",
-        [],
-    )
-    .unwrap();
+    assert_eq!(version(&db), 2);
     let timestamp: i64 = db
         .query_row("SELECT created_at FROM snippets", [], |r| r.get(0))
         .unwrap();
     assert!(timestamp > 0);
-    assert_eq!(backup_files(&path).len(), 1);
+    assert_eq!(backup_files(&path).len(), 2);
 }
 
 #[test]
@@ -104,8 +99,12 @@ fn backup_contains_the_pre_migration_schema_and_committed_wal_pages() {
         .unwrap();
     Store::open(&path).unwrap();
     let backups = backup_files(&path);
-    assert_eq!(backups.len(), 1);
-    let backup = Connection::open(&backups[0]).unwrap();
+    assert_eq!(backups.len(), 2);
+    let backup = backups
+        .iter()
+        .map(|path| Connection::open(path).unwrap())
+        .find(|db| version(db) == 0)
+        .unwrap();
     assert_eq!(version(&backup), 0);
     let original: i64 = backup
         .query_row("SELECT n FROM original", [], |row| row.get(0))

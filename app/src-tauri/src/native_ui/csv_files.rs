@@ -1,5 +1,10 @@
 use super::*;
-use std::{ffi::OsString, os::windows::ffi::OsStringExt, path::Path};
+use std::{
+    ffi::OsString,
+    fs::File,
+    os::windows::ffi::OsStringExt,
+    path::{Path, PathBuf},
+};
 use windows::{
     Win32::UI::Controls::Dialogs::{
         CommDlgExtendedError, GetOpenFileNameW, GetSaveFileNameW, OFN_DONTADDTORECENT,
@@ -59,7 +64,10 @@ pub(super) fn choose(owner: HWND, save: bool) -> io::Result<Option<PathBuf>> {
     Ok(Some(PathBuf::from(OsString::from_wide(&path[..end]))))
 }
 
-pub(super) fn export(store: &Store, path: &Path) -> io::Result<()> {
+pub(super) fn export(
+    path: &Path,
+    write: impl FnOnce(&mut File) -> quatsch_mit_sosse_store::Result<()>,
+) -> io::Result<()> {
     if !path
         .extension()
         .is_some_and(|ext| ext.eq_ignore_ascii_case("csv"))
@@ -68,9 +76,7 @@ pub(super) fn export(store: &Store, path: &Path) -> io::Result<()> {
     }
     let folder = path.parent().ok_or_else(file_error)?;
     let mut temp = tempfile::NamedTempFile::new_in(folder).map_err(|_| file_error())?;
-    store
-        .export_csv(temp.as_file_mut())
-        .map_err(io::Error::other)?;
+    write(temp.as_file_mut()).map_err(io::Error::other)?;
     temp.as_file().sync_all().map_err(|_| file_error())?;
     temp.persist(path).map_err(|_| file_error())?;
     Ok(())

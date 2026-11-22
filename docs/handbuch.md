@@ -37,3 +37,20 @@ Die längste passende Variante gewinnt. Ist dieselbe gesprochene Variante bei zw
 **CSV exportieren …** schreibt das gesamte Wörterbuch als UTF-8-Datei. Du kannst diese Datei über **CSV importieren …** wieder einlesen. Für eine eigene Liste genügt eine Spalte mit der Überschrift `term`. Der vollständige Export enthält die Spalten `term,replacement,aliases,source,created_at`. Varianten stehen als JSON-Liste in einem CSV-Feld, der Erstellungszeitpunkt in Unix-Sekunden. Ein vorhandener Begriff wird beim Import aktualisiert. Enthält die Datei einen ungültigen Datensatz, verwirft die App den gesamten Import.
 
 Die lokale Datenbank liegt unter `%LOCALAPPDATA%\QuatschMitSosse\data\quatsch-mit-sosse.db`. Vor jeder Änderung der Datenbankstruktur legt die App im Unterordner `backups` eine Sicherung des bisherigen Stands an.
+
+## Snippets
+
+Öffne **Einstellungen → Snippets**. Sprich „Gedanken ordnen Prompt“ als eigenen Satz. Im Zielfeld erscheint der gespeicherte Arbeitsauftrag. In einem Satz wie „Ich möchte den Gedanken ordnen Prompt ändern“ bleiben die gesprochenen Wörter stehen.
+
+Für deine Adresse wählst du **meine E-Mail-Adresse**, trägst sie unter **Einzufügender Text** ein und klickst auf **Änderungen speichern**. Solange das Feld leer ist, bleibt der Auslöser beim Diktieren erhalten. Unter **Neuer Eintrag** kannst du eigene Vorlagen anlegen. Der Text darf mehrere Absätze enthalten.
+
+| Platzhalter | Ergebnis beim Diktieren |
+| --- | --- |
+| `{datum}` | Lokales Datum, etwa `22.11.2026` |
+| `{uhrzeit}` | Lokale Uhrzeit, etwa `09:07` |
+| `{zwischenablage}` | Aktueller Text aus der Windows-Zwischenablage. Enthält sie nur ein Bild, bleibt die Stelle leer. |
+| `{cursor}` | Gewünschte Schreibposition im Zielfeld. Bei mehreren Marken gilt die erste. |
+
+Für einen Brief kannst du etwa `Hallo {cursor},` als erste Zeile und deinen Gruß als letzte Zeile speichern. In einem unterstützten Zielfeld kannst du nach dem Diktieren direkt den Namen tippen. **Letzten Text erneut einfügen** verwendet die beim Diktat eingesetzten Werte und dieselbe gewünschte Cursorposition.
+
+Die Suche findet Auslöser und Vorlagentexte. **CSV exportieren …** schreibt alle Snippets mit den Spalten `trigger,text,created_at`. Zum Import genügen `trigger,text`. Setze mehrzeilige CSV-Felder in doppelte Anführungszeichen. Ein vorhandener Auslöser wird aktualisiert. Bei einer fehlerhaften Zeile verwirft die App den gesamten Import.

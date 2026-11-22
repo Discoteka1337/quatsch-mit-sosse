@@ -37,6 +37,7 @@ struct Fake {
     calls: Vec<&'static str>,
     overlay: OverlayState,
     inserts: Vec<(u8, String)>,
+    carets: Vec<Option<usize>>,
     stopped_before_processing: bool,
     fail_begin: bool,
     fail_finish: bool,
@@ -75,7 +76,8 @@ impl Ports for Fake {
         self.calls.push("recognize");
         Ok(())
     }
-    fn insert(&mut self, target: u8, text: &str) -> Result<(), String> {
+    fn insert(&mut self, target: u8, text: &str, cursor: Option<usize>) -> Result<(), String> {
+        self.carets.push(cursor);
         self.inserts.push((target, text.into()));
         Ok(())
     }

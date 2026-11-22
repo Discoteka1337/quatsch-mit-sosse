@@ -1,0 +1,143 @@
+[[case]]
+name = "Das vollständige Diktat entspricht dem Auslöser"
+input = "GEDANKEN, ordnen Prompt!"
+rules = ["snippets"]
+snippets = [["Gedanken ordnen Prompt", "Ordne diese unstrukturierten Gedanken zu einer klaren, gut lesbaren Fassung, ohne Inhalte hinzuzufügen oder wegzulassen."]]
+expected = "Ordne diese unstrukturierten Gedanken zu einer klaren, gut lesbaren Fassung, ohne Inhalte hinzuzufügen oder wegzulassen."
+
+[[case]]
+name = "Ein eigener Satz in der Mitte und am Ende"
+input = "Vorher.  meine e mail adresse? Danach. meine Email-Adresse!"
+rules = ["snippets"]
+snippets = [["meine E-Mail-Adresse", "abc@example.invalid"]]
+expected = "Vorher.  abc@example.invalid Danach. abc@example.invalid"
+
+[[case]]
+name = "Kein Treffer als Teilsatz, längeres Wort oder andere Wortfolge"
+input = "Bitte Gedanken ordnen Prompt. Gedanken ordnen Prompt jetzt! Gedanken ordnen, promptest du?"
+rules = ["snippets"]
+snippets = [["Gedanken ordnen Prompt", "{zwischenablage}"]]
+expected = "Bitte Gedanken ordnen Prompt. Gedanken ordnen Prompt jetzt! Gedanken ordnen, promptest du?"
+
+[[case]]
+name = "Ein Punkt in einer Webadresse oder Abkürzung beendet keinen Satz"
+input = "Besuche test.de. Dr. Meyer ist hier."
+rules = ["snippets"]
+snippets = [["de", "Deutschland"], ["Meyer ist hier", "{zwischenablage}"]]
+expected = "Besuche test.de. Dr. Meyer ist hier."
+
+[[case]]
+name = "Absätze und Einrückung des Diktats bleiben erhalten"
+input = "Erster Absatz\r\n\r\n\tGrußformel\n\nDritter Absatz"
+rules = ["snippets"]
+snippets = [["Grußformel", "Viele Grüße\n\nMira"]]
+expected = "Erster Absatz\r\n\r\n\tViele Grüße\n\nMira\n\nDritter Absatz"
+
+[[case]]
+name = "Eine noch leere Vorlage lässt den gesprochenen Satz stehen"
+input = "Meine E-Mail-Adresse."
+rules = ["snippets"]
+snippets = [["meine E-Mail-Adresse", ""]]
+expected = "Meine E-Mail-Adresse."
+
+[[case]]
+name = "Die ausgeschaltete Regel führt keine Ersetzung aus"
+input = "Vorlage"
+rules = ["punctuation"]
+snippets = [["Vorlage", "{zwischenablage}"]]
+expected = "Vorlage."
+
+[[case]]
+name = "Auslöser werden nach Sprachbefehlen und Bereinigung geprüft"
+input = "ähm Vorlage Punkt"
+rules = ["voice_commands", "filler_words", "punctuation", "snippets"]
+snippets = [["Vorlage", "ähm bleibt klein\nund mehrzeilig"]]
+expected = "ähm bleibt klein\nund mehrzeilig"
+
+[[case]]
+name = "Alle Platzhalter sind einmalig und der Cursor steht hinter Unicode"
+input = "Müde. Vorlage!"
+rules = ["snippets"]
+snippets = [["Vorlage", "Grüße 👋{cursor}\n{datum}, {uhrzeit}\n{zwischenablage} {unbekannt}"]]
+clipboard = "{datum} {cursor}\nzweite Zeile"
+expected = "Müde. Grüße 👋\n22.11.2026, 09:07\n{datum} {cursor}\nzweite Zeile {unbekannt}"
+cursor = 19
+
+[[case]]
+name = "Die erste Cursormarke gilt über mehrere Sätze"
+input = "Hier. Hier!"
+rules = ["snippets"]
+snippets = [["hier", "{cursor}eins{cursor}"]]
+expected = "eins eins"
+cursor = 0
+
+[[case]]
+name = "Benutzertext und eingesetzte Auslöser werden nie erneut expandiert"
+input = "Erster."
+rules = ["snippets"]
+snippets = [["erster", "Zweiter."], ["zweiter", "{zwischenablage}"]]
+expected = "Zweiter."
+
+[[case]]
+name = "Ein Auslöser für das ganze Diktat hat Vorrang vor Einzelsätzen"
+input = "Anfang. Ende."
+rules = ["snippets"]
+snippets = [["Anfang", "Nur ein Satz"], ["Anfang. Ende.", "Beide"]]
+expected = "Beide"
+
+[[case]]
+name = "Normierte Umlaute und Großschreibung von Eszett"
+input = "GRÜSSE FU\u0308R MIA?"
+rules = ["snippets"]
+snippets = [["Grüße für Mia", "Hallo Mia!"]]
+expected = "Hallo Mia!"
+
+[[case]]
+name = "Wortgrenzen unterscheiden Auslöser"
+input = "Wachstube."
+rules = ["snippets"]
+snippets = [["Wachs Tube", "{zwischenablage}"]]
+expected = "Wachstube."
+
+[[case]]
+name = "Unsicherheitsbereiche behalten nach einer Ersetzung ihre Position"
+input = "Vorlage. Das scheint seltsam, äh, schwierig."
+rules = ["self_corrections", "snippets"]
+snippets = [["Vorlage", "Dies ist eine längere Vorlage."]]
+expected = "Dies ist eine längere Vorlage. Das scheint seltsam, äh, schwierig."
+uncertain = ["seltsam, äh, schwierig"]
+
+[[case]]
+name = "Deutliche Satzgrenzen auch ohne Zwischenraum"
+input = "Hallo!Vorlage?Ende."
+rules = ["snippets"]
+snippets = [["Vorlage", "Eingesetzt."]]
+expected = "Hallo!Eingesetzt.Ende."
+
+[[case]]
+name = "Ein Komma trennt Wörter auch ohne Leerzeichen"
+input = "Gedanken,ordnen Prompt."
+rules = ["snippets"]
+snippets = [["Gedanken ordnen Prompt", "Eingesetzt."]]
+expected = "Eingesetzt."
+
+[[case]]
+name = "Satzzeichen in einer URL oder Mailadresse lösen keine Vorlage aus"
+input = "test!Vorlage?x@example.invalid https://example.invalid/?Vorlage!x 9.42."
+rules = ["snippets"]
+snippets = [["Vorlage", "{zwischenablage}"], ["42", "{zwischenablage}"]]
+expected = "test!Vorlage?x@example.invalid https://example.invalid/?Vorlage!x 9.42."
+
+[[case]]
+name = "Bekannte Monatsnamen nach einem Tagesdatum gehören zum selben Satz"
+input = "Ich fahre am 7. März."
+rules = ["snippets"]
+snippets = [["März", "{zwischenablage}"]]
+expected = "Ich fahre am 7. März."
+
+[[case]]
+name = "Die exakte Wortgrenze hat Vorrang vor einem gesprochenen Bindestrich"
+input = "Wachs Tube."
+rules = ["snippets"]
+snippets = [["Wachs-Tube", "Zusammengesetzt"], ["Wachs Tube", "Getrennt"]]
+expected = "Getrennt"

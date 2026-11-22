@@ -80,7 +80,7 @@ fn at_sentence_start(before: &[Token]) -> bool {
     }
 }
 
-fn abbreviation(word: &str) -> bool {
+pub(super) fn abbreviation(word: &str) -> bool {
     matches!(
         word_key(word).as_str(),
         "abb"

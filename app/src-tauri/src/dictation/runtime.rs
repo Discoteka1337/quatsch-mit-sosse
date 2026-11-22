@@ -41,7 +41,7 @@ enum Command {
 
 enum Job {
     Recognize(&'static str, Vec<f32>),
-    Insert(Target, String),
+    Insert(Target, String, Option<usize>),
     RemoveModel(String, ModelResult),
 }
 
@@ -90,9 +90,9 @@ impl Ports for Desktop {
             .send(Job::Recognize(model, samples))
             .map_err(|_| messages().worker_error.clone())
     }
-    fn insert(&mut self, target: Target, text: &str) -> Result<(), String> {
+    fn insert(&mut self, target: Target, text: &str, cursor: Option<usize>) -> Result<(), String> {
         self.jobs
-            .send(Job::Insert(target, text.to_owned()))
+            .send(Job::Insert(target, text.to_owned(), cursor))
             .map_err(|_| messages().worker_error.clone())
     }
     fn show(&mut self, state: OverlayState) {
@@ -161,13 +161,13 @@ impl Controller {
                                     let _ = replies.send(Command::Error(message));
                                 })
                                 .map(|(model, text)| {
-                                    Transcript::with_dictionary(model, text, Store::open_default)
+                                    Transcript::from_dictation(model, text, Store::open_default)
                                 });
                             Command::Recognized(transcript)
                         }
-                        Job::Insert(target, text) => {
-                            Command::Inserted(target.insert(&text).map_err(|e| e.to_string()))
-                        }
+                        Job::Insert(target, text, cursor) => Command::Inserted(
+                            target.insert(&text, cursor).map_err(|e| e.to_string()),
+                        ),
                         Job::RemoveModel(id, done) => {
                             let result = ModelManager::new()
                                 .map_err(|e| e.to_string())

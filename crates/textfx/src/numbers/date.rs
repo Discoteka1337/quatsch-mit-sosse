@@ -17,7 +17,7 @@ fn ordinal_day(ordinal: &str) -> Option<u32> {
     })
 }
 
-fn named_month(month: &str) -> Option<(&'static str, u32)> {
+pub(crate) fn named_month(month: &str) -> Option<(&'static str, u32)> {
     Some(match month {
         "januar" => ("Januar", 31),
         "februar" => ("Februar", 29),

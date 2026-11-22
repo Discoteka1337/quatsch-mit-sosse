@@ -4,6 +4,14 @@ use std::sync::LazyLock;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Labels {
+    pub(super) snippets_title: String,
+    pub(super) snippets_search: String,
+    pub(super) snippets_trigger: String,
+    pub(super) snippets_text: String,
+    pub(super) snippets_placeholders: String,
+    pub(super) snippets_delete_prompt: String,
+    pub(super) snippets_busy: String,
+    pub(super) snippets_store_error: String,
     pub(super) dictionary_title: String,
     pub(super) dictionary_search: String,
     pub(super) dictionary_entries: String,

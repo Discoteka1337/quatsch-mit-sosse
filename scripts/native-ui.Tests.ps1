@@ -261,6 +261,62 @@ function Test-DictionaryPage {
     Press 302
 }
 
+function Test-SnippetPage {
+    param([IntPtr]$Window)
+    function Press([int]$Id) {
+        $control = [QmsNativeWindows]::GetDlgItem($Window, $Id)
+        if (-not [QmsNativeWindows]::IsWindowVisible($control) -or
+            -not [QmsNativeWindows]::NotifyClick($Window, $Id, $control)) { throw 'Die Snippet-Schaltfläche ist nicht erreichbar.' }
+    }
+    function Select-FirstSnippet {
+        $list = [QmsNativeWindows]::GetDlgItem($Window, 404)
+        $null = [QmsNativeWindows]::PostMessage($list, 0x0186, [IntPtr]::Zero, [IntPtr]::Zero)
+        $null = [QmsNativeWindows]::PostMessage($Window, 0x0111, [IntPtr](0x10000 + 404), $list)
+    }
+    Press 117
+    Wait-NativeCondition { [QmsNativeWindows]::SelectedValue($Window, 404, 0x018B) -eq 2 } 'Die zwei vorbelegten Snippets müssen erscheinen.'
+    $editor = [QmsNativeWindows]::GetDlgItem($Window, 406)
+    if (([QmsNativeWindows]::GetWindowLong($editor, -16) -band 0x1004) -ne 0x1004) {
+        throw 'Der Snippet-Editor muss mehrzeilige Eingaben mit der Eingabetaste unterstützen.'
+    }
+    foreach ($id in @(411, 412)) {
+        if (-not [QmsNativeWindows]::IsWindowVisible([QmsNativeWindows]::GetDlgItem($Window, $id))) {
+            throw 'CSV-Import und -Export müssen auf der Snippet-Seite erreichbar sein.'
+        }
+    }
+    [QmsNativeWindows]::SetControlText($Window, 403, 'E-Mail-Adresse')
+    Wait-NativeCondition { [QmsNativeWindows]::SelectedValue($Window, 404, 0x018B) -eq 1 } 'Die Suche muss den passenden Auslöser finden.'
+    Select-FirstSnippet
+    Wait-NativeCondition { [QmsNativeWindows]::ControlText($Window, 405) -ceq 'meine E-Mail-Adresse' } 'Der gefilterte Listeneintrag muss sich öffnen lassen.'
+    if ([QmsNativeWindows]::ControlText($Window, 406) -cne '') { throw 'Die vorbelegte E-Mail-Adresse muss leer sein.' }
+    Press 409
+    $body = "Erste Zeile`r`n{datum} {uhrzeit} {zwischenablage} {cursor}"
+    [QmsNativeWindows]::SetControlText($Window, 405, 'Termin vorbereiten')
+    [QmsNativeWindows]::SetControlText($Window, 406, $body)
+    Press 408
+    Wait-NativeCondition { [QmsNativeWindows]::SelectedValue($Window, 404, 0x018B) -eq 3 } 'Ein neuer Auslöser muss in der Liste erscheinen.'
+    $body += "`r`nLetzte Zeile"
+    [QmsNativeWindows]::SetControlText($Window, 406, $body)
+    Press 408
+    Wait-NativeCondition { [QmsNativeWindows]::ControlText($Window, 413) -ceq $locale.dictionarySaved } 'Der mehrzeilige Text muss gespeichert werden.'
+    Press 402
+    Press 117
+    [QmsNativeWindows]::SetControlText($Window, 403, 'letzte zeile')
+    Wait-NativeCondition { [QmsNativeWindows]::SelectedValue($Window, 404, 0x018B) -eq 1 } 'Die Suche muss auch Snippet-Texte finden.'
+    Select-FirstSnippet
+    Wait-NativeCondition { [QmsNativeWindows]::ControlText($Window, 406) -ceq $body } 'Alle Zeilen und Platzhalter müssen nach dem Öffnen erhalten bleiben.'
+    $delete = [QmsNativeWindows]::GetDlgItem($Window, 410)
+    $null = [QmsNativeWindows]::PostMessage($Window, 0x0111, [IntPtr]410, $delete)
+    Wait-NativeCondition {
+        @([QmsNativeWindows]::AppWindows($script:nativeProcess.Id, $locale.snippetsTitle)).Count -eq 1
+    } 'Vor dem Löschen eines Snippets muss die Bestätigung erscheinen.'
+    $dialog = @([QmsNativeWindows]::AppWindows($script:nativeProcess.Id, $locale.snippetsTitle))[0]
+    $yes = [QmsNativeWindows]::GetDlgItem($dialog, 6)
+    $null = [QmsNativeWindows]::PostMessage($dialog, 0x0111, [IntPtr]6, $yes)
+    Wait-NativeCondition { [QmsNativeWindows]::SelectedValue($Window, 404, 0x018B) -eq 0 } 'Das gelöschte Snippet muss aus der Trefferliste verschwinden.'
+    Press 402
+}
+
 $runId = [guid]::NewGuid().ToString('N')
 $testData = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath "qms-overlay-$runId"
 $logPath = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath "qms-native-$runId.log"
@@ -299,6 +355,7 @@ try {
         if ($ready -eq [IntPtr]::Zero -or $privacy -eq [IntPtr]::Zero) { throw 'Die Overlay-Optionen fehlen.' }
         if ($cycle -eq 0) {
             Test-DictionaryPage $visible
+            Test-SnippetPage $visible
             $tones = [QmsNativeWindows]::FindWindowEx($visible, [IntPtr]::Zero, 'Button', $locale.generalTones)
             if ($tones -eq [IntPtr]::Zero) { throw 'Der Schalter für die Diktattöne fehlt.' }
             $settingsFile = Join-Path -Path "$testData" -ChildPath 'QuatschMitSosse\data\settings.json'

@@ -54,16 +54,60 @@ fn layout_keeps_columns_separate_at_minimum_width_and_high_dpi() {
 
 #[test]
 fn dictionary_csv_commands_round_trip_the_selected_files() {
-    use dictionary::Action;
+    use entry_editor::{Action, Collection};
     use quatsch_mit_sosse_store::Store;
     let dir = tempfile::tempdir().unwrap();
     let mut store = Store::open(dir.path().join("test.db")).unwrap();
     let csv = dir.path().join("Meine Wörter.csv");
-    Action::Export(csv.clone()).run(&mut store).unwrap();
+    Action::Export(csv.clone())
+        .run(Collection::Dictionary, &mut store)
+        .unwrap();
     let codex = store.list("kodex").unwrap().remove(0);
     store.delete(codex.id).unwrap();
-    Action::Import(csv).run(&mut store).unwrap();
+    Action::Import(csv)
+        .run(Collection::Dictionary, &mut store)
+        .unwrap();
     let restored = store.list("kodex").unwrap().remove(0);
     assert_eq!(restored.term, "Codex");
     assert_eq!(restored.aliases, codex.aliases);
+}
+
+#[test]
+fn snippet_csv_commands_round_trip_multiline_text_and_leave_dictionary_entries_alone() {
+    use entry_editor::{Action, Collection};
+    use quatsch_mit_sosse_store::{SnippetDraft, Store};
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(dir.path().join("test.db")).unwrap();
+    let draft = SnippetDraft {
+        trigger: "Meine Vorlage".into(),
+        text: "Zeile eins, mit Komma\r\"{cursor}\"\r\nEnde\n".into(),
+    };
+    let id = store.add_snippet(&draft).unwrap();
+    let csv = dir.path().join("Meine Vorlagen.csv");
+    Action::Export(csv.clone())
+        .run(Collection::Snippets, &mut store)
+        .unwrap();
+    store.delete_snippet(id).unwrap();
+    Action::Import(csv)
+        .run(Collection::Snippets, &mut store)
+        .unwrap();
+    let imported = store.list_snippets("Vorlage").unwrap().remove(0);
+    assert_eq!(imported.text, draft.text);
+    let displayed = entry_editor::windows_lines(&imported.text);
+    assert_eq!(
+        displayed,
+        "Zeile eins, mit Komma\r\n\"{cursor}\"\r\nEnde\r\n"
+    );
+    let renamed = SnippetDraft {
+        trigger: "Neue Vorlage".into(),
+        text: entry_editor::edited_text(Some(&imported.text), &displayed),
+    };
+    Action::SaveSnippet(Some(imported.id), renamed)
+        .run(Collection::Snippets, &mut store)
+        .unwrap();
+    assert_eq!(
+        store.list_snippets("Neue Vorlage").unwrap()[0].text,
+        draft.text
+    );
+    assert_eq!(store.list("").unwrap().len(), 10);
 }

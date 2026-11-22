@@ -4,10 +4,11 @@ use windows::Win32::Graphics::Gdi::{
     CopyEnhMetaFileW, DeleteEnhMetaFile, DeleteMetaFile, DeleteObject, HENHMETAFILE, HGDIOBJ,
 };
 use windows::Win32::System::DataExchange::{
-    EmptyClipboard, METAFILEPICT, RegisterClipboardFormatW, SetClipboardData,
+    EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable, METAFILEPICT,
+    RegisterClipboardFormatW, SetClipboardData,
 };
 use windows::Win32::System::Memory::{
-    GMEM_MOVEABLE, GMEM_ZEROINIT, GlobalAlloc, GlobalLock, GlobalUnlock,
+    GMEM_MOVEABLE, GMEM_ZEROINIT, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock,
 };
 use windows::Win32::System::Ole::{
     CF_BITMAP, CF_DSPBITMAP, CF_DSPENHMETAFILE, CF_DSPMETAFILEPICT, CF_ENHMETAFILE,
@@ -23,11 +24,42 @@ use super::{InjectError, Target, keyboard};
 #[cfg(test)]
 mod tests;
 
+static TRANSACTION: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 const PRIVACY_FORMATS: [PCWSTR; 3] = [
     w!("ExcludeClipboardContentFromMonitorProcessing"),
     w!("CanIncludeInClipboardHistory"),
     w!("CanUploadToCloudClipboard"),
 ];
+
+/// Read Unicode text for an explicitly requested snippet placeholder.
+pub fn clipboard_text() -> Result<String, InjectError> {
+    let _guard = TRANSACTION.try_lock().map_err(|_| InjectError::Busy)?;
+    let _open = ClipboardLock::open(HWND::default())?;
+    if unsafe { IsClipboardFormatAvailable(CF_UNICODETEXT.0.into()) }.is_err() {
+        return Ok(String::new());
+    }
+    let handle = unsafe { GetClipboardData(CF_UNICODETEXT.0.into()) }
+        .map_err(|_| InjectError::Unavailable)?;
+    let memory = HGLOBAL(handle.0);
+    let count = unsafe { GlobalSize(memory) } / size_of::<u16>();
+    let data = unsafe { GlobalLock(memory) }.cast::<u16>();
+    if data.is_null() {
+        return Err(InjectError::Unavailable);
+    }
+    // GlobalSize bounds the search even if another application omitted the terminator.
+    let result = decode_clipboard_text(unsafe { std::slice::from_raw_parts(data, count) });
+    let _ = unsafe { GlobalUnlock(memory) };
+    result
+}
+
+fn decode_clipboard_text(units: &[u16]) -> Result<String, InjectError> {
+    let end = units
+        .iter()
+        .position(|&unit| unit == 0)
+        .ok_or(InjectError::Unavailable)?;
+    String::from_utf16(&units[..end]).map_err(|_| InjectError::Unavailable)
+}
 
 /// Replace the clipboard on an explicit copy request, retaining the text for later paste.
 /// A busy clipboard can be retried by the caller without changing the foreground window.
@@ -59,6 +91,7 @@ fn set_data(format: CLIPBOARD_FORMAT, handle: HANDLE) -> Result<(), InjectError>
 }
 
 pub(crate) fn paste(target: &Target, text: &str) -> Result<(), InjectError> {
+    let _guard = TRANSACTION.try_lock().map_err(|_| InjectError::Busy)?;
     let owner = OwnerWindow::new(target)?;
     temporary_text(
         &owner,

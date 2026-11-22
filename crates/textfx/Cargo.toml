@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 icu_normalizer = { version = "2.4.0", default-features = false, features = ["compiled_data", "utf8_iter"] }
+icu_properties = { version = "2.4.0", default-features = false, features = ["compiled_data"] }
 unicode-ident = "1"
 unicode-segmentation = "1"
 

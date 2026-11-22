@@ -19,7 +19,8 @@ pub(super) const SHOW_READY: u16 = 113;
 pub(super) const HIDE_FROM_CAPTURE: u16 = 114;
 pub(super) const STATUS: u16 = 115;
 pub(super) const OPEN_DICTIONARY: u16 = 116;
-pub(super) const DICTIONARY_TITLE: u16 = 301;
+pub(super) const OPEN_SNIPPETS: u16 = 117;
+pub(super) const EDITOR_TITLE: u16 = 301;
 pub(super) const GENERAL: u16 = 302;
 pub(super) const SEARCH: u16 = 303;
 pub(super) const ENTRIES: u16 = 304;
@@ -31,11 +32,11 @@ pub(super) const NEW: u16 = 309;
 pub(super) const DELETE: u16 = 310;
 pub(super) const IMPORT: u16 = 311;
 pub(super) const EXPORT: u16 = 312;
-pub(super) const DICTIONARY_STATUS: u16 = 313;
+pub(super) const EDITOR_STATUS: u16 = 313;
 
-pub(super) fn on_dictionary_page(id: u16) -> bool {
-    id >= DICTIONARY_TITLE
-}
+// Both entry editors use the same relative control IDs. Distinct native
+// widgets let pending storage updates complete when the other page is open.
+pub(super) const SNIPPET_OFFSET: u16 = 100;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Kind {
@@ -72,9 +73,24 @@ pub(super) struct Field {
 pub(super) static FIELDS: std::sync::LazyLock<Vec<Field>> = std::sync::LazyLock::new(|| {
     let l = &*LABELS;
     let messages = crate::messages();
-    [
+    let mut fields = vec![
         (TITLE, Text, l.general_title.as_str(), Left, 16, 38),
-        (OPEN_DICTIONARY, Button, &l.dictionary_title, Right, 18, 32),
+        (
+            OPEN_DICTIONARY,
+            Button,
+            &l.dictionary_title,
+            ActionLeft,
+            18,
+            32,
+        ),
+        (
+            OPEN_SNIPPETS,
+            Button,
+            &l.snippets_title,
+            ActionRight,
+            18,
+            32,
+        ),
         (201, Text, &l.general_dictation, Left, 66, 22),
         (DICTATION, Button, "", Left, 90, 30),
         (202, Text, &l.general_reinsert, Right, 66, 22),
@@ -112,35 +128,61 @@ pub(super) static FIELDS: std::sync::LazyLock<Vec<Field>> = std::sync::LazyLock:
             28,
         ),
         (STATUS, Text, "", Full, 486, 44),
-        (DICTIONARY_TITLE, Text, &l.dictionary_title, Left, 16, 38),
-        (GENERAL, Button, &l.general_title, Right, 18, 32),
-        (320, Text, &l.dictionary_search, Full, 60, 22),
-        (SEARCH, Edit, "", Full, 82, 28),
-        (321, Text, &l.dictionary_entries, Full, 118, 22),
-        (ENTRIES, List, "", Full, 140, 100),
-        (322, Text, &l.dictionary_term, Left, 248, 22),
-        (TERM, Edit, "", Left, 270, 28),
-        (323, Text, &l.dictionary_replacement, Right, 248, 22),
-        (REPLACEMENT, Multiline, "", Right, 270, 48),
-        (324, Text, &l.dictionary_aliases, Full, 322, 22),
-        (ALIASES, Multiline, "", Full, 344, 54),
-        (SAVE, Button, &l.dictionary_add, Left, 408, 30),
-        (NEW, Button, &l.dictionary_new, ActionLeft, 408, 30),
-        (DELETE, Button, &l.dictionary_delete, ActionRight, 408, 30),
-        (IMPORT, Button, &l.dictionary_import, Left, 450, 30),
-        (EXPORT, Button, &l.dictionary_export, Right, 450, 30),
-        (DICTIONARY_STATUS, Text, "", Full, 486, 44),
-    ]
-    .into_iter()
-    .map(|(id, kind, text, column, y, height)| Field {
-        id,
-        kind,
-        text,
-        column,
-        y,
-        height,
-    })
-    .collect()
+    ];
+    for collection in [Collection::Dictionary, Collection::Snippets] {
+        let mut controls = vec![
+            (EDITOR_TITLE, Text, collection.title(), Left, 16, 38),
+            (GENERAL, Button, &l.general_title, Right, 18, 32),
+            (320, Text, collection.search_label(), Full, 60, 22),
+            (SEARCH, Edit, "", Full, 82, 28),
+            (321, Text, &l.dictionary_entries, Full, 118, 22),
+        ];
+        match collection {
+            Collection::Dictionary => controls.extend([
+                (ENTRIES, List, "", Full, 140, 100),
+                (322, Text, &l.dictionary_term, Left, 248, 22),
+                (TERM, Edit, "", Left, 270, 28),
+                (323, Text, &l.dictionary_replacement, Right, 248, 22),
+                (REPLACEMENT, Multiline, "", Right, 270, 48),
+                (324, Text, &l.dictionary_aliases, Full, 322, 22),
+                (ALIASES, Multiline, "", Full, 344, 54),
+            ]),
+            Collection::Snippets => controls.extend([
+                (ENTRIES, List, "", Full, 140, 72),
+                (322, Text, &l.snippets_trigger, Full, 216, 22),
+                (TERM, Edit, "", Full, 238, 28),
+                (323, Text, &l.snippets_text, Full, 270, 22),
+                (REPLACEMENT, Multiline, "", Full, 292, 74),
+                (324, Text, &l.snippets_placeholders, Full, 370, 36),
+            ]),
+        }
+        controls.extend([
+            (SAVE, Button, l.dictionary_add.as_str(), Left, 408, 30),
+            (NEW, Button, &l.dictionary_new, ActionLeft, 408, 30),
+            (DELETE, Button, &l.dictionary_delete, ActionRight, 408, 30),
+            (IMPORT, Button, &l.dictionary_import, Left, 450, 30),
+            (EXPORT, Button, &l.dictionary_export, Right, 450, 30),
+            (EDITOR_STATUS, Text, "", Full, 486, 44),
+        ]);
+        fields.extend(
+            controls
+                .into_iter()
+                .map(|(id, kind, text, col, y, height)| {
+                    (collection.id(id), kind, text, col, y, height)
+                }),
+        );
+    }
+    fields
+        .into_iter()
+        .map(|(id, kind, text, column, y, height)| Field {
+            id,
+            kind,
+            text,
+            column,
+            y,
+            height,
+        })
+        .collect()
 });
 
 pub(super) struct Rect {
@@ -218,7 +260,9 @@ fn place(form: &Form) -> io::Result<()> {
         let child = form.control(field.id);
         let rect = placement(field.id, bounds.right, dpi, offset);
         if let Some((body, title)) = &new_fonts {
-            let font = if matches!(field.id, TITLE | DICTIONARY_TITLE) {
+            let font = if [TITLE, EDITOR_TITLE, Collection::Snippets.id(EDITOR_TITLE)]
+                .contains(&field.id)
+            {
                 title
             } else {
                 body

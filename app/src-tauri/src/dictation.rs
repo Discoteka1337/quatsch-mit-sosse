@@ -36,7 +36,12 @@ trait Ports {
     fn finish(&mut self) -> Result<Vec<f32>, String>;
     fn suspend(&mut self) -> Result<(), String>;
     fn recognize(&mut self, model: &'static str, samples: Vec<f32>) -> Result<(), String>;
-    fn insert(&mut self, target: Self::Target, text: &str) -> Result<(), String>;
+    fn insert(
+        &mut self,
+        target: Self::Target,
+        text: &str,
+        cursor: Option<usize>,
+    ) -> Result<(), String>;
     fn show(&mut self, state: OverlayState);
 }
 
@@ -51,6 +56,7 @@ struct Session<P: Ports> {
     ports: P,
     phase: Phase<P::Target>,
     last: String,
+    last_cursor: Option<usize>,
     warning: Option<String>,
     administrator_hint: bool,
 }
@@ -61,6 +67,7 @@ impl<P: Ports> Session<P> {
             ports,
             phase: Phase::Idle,
             last: String::new(),
+            last_cursor: None,
             warning: None,
             administrator_hint: false,
         }
@@ -150,10 +157,15 @@ impl<P: Ports> Session<P> {
         };
         self.phase = Phase::Idle;
         match result {
-            Ok(transcript) if !transcript.text.trim().is_empty() => {
-                self.last = transcript.text;
+            Ok(transcript) if transcript.heard_speech => {
                 self.warning = transcript.warning;
-                self.repeat(target);
+                if transcript.text.is_empty() {
+                    self.show(OverlayState::Ready);
+                } else {
+                    self.last = transcript.text;
+                    self.last_cursor = transcript.cursor;
+                    self.repeat(target);
+                }
             }
             Ok(_) => self.error(messages().no_speech.clone()),
             Err(message) => self.error(message),
@@ -168,7 +180,7 @@ impl<P: Ports> Session<P> {
             self.error(messages().no_last_text.clone());
         } else if let Some(target) = target {
             self.show(OverlayState::Inserting);
-            match self.ports.insert(target, &self.last) {
+            match self.ports.insert(target, &self.last, self.last_cursor) {
                 Ok(()) => self.phase = Phase::Inserting,
                 Err(message) => self.error(message),
             }

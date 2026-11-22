@@ -26,12 +26,14 @@ use windows::{
 };
 
 mod capture;
-mod dictionary;
+mod csv_files;
+mod entry_editor;
 mod labels;
 mod layout;
 mod probe;
 mod values;
 use capture::Chord;
+use entry_editor::Collection;
 use labels::LABELS;
 use layout::*;
 
@@ -42,6 +44,7 @@ const FIELD_FOCUS: u32 = WM_APP + 24;
 const PROBE_TIMER: usize = 0x514d;
 const REMOVE_TIMER: usize = 0x514e;
 const DICTIONARY_TIMER: usize = 0x5150;
+const SNIPPETS_TIMER: usize = 0x5151;
 
 fn scale(value: i32, dpi: u32) -> i32 {
     (i64::from(value) * i64::from(dpi.max(96)) / 96) as i32
@@ -93,7 +96,8 @@ struct Form {
     dpi: Cell<u32>,
     in_layout: Cell<bool>,
     fonts: RefCell<Option<(Font, Font)>>,
-    dictionary: dictionary::Page,
+    dictionary: entry_editor::Page,
+    snippets: entry_editor::Page,
     capturing: Cell<u16>,
     chord: RefCell<Chord>,
     devices: RefCell<Vec<String>>,
@@ -256,24 +260,34 @@ unsafe extern "system" fn settings_proc(
             }
             return LRESULT(0);
         }
-        WM_COMMAND
-            if lp.0 != 0 && (on_dictionary_page(wp.0 as u16) || wp.0 as u16 == OPEN_DICTIONARY) =>
-        {
-            if let Err(error) = form.dictionary_command(wp.0 as u16, (wp.0 >> 16) as u32) {
-                form.set_text(DICTIONARY_STATUS, &error.to_string());
-            }
-            return LRESULT(0);
-        }
-        WM_TIMER if wp.0 == DICTIONARY_TIMER => {
-            if let Err(error) = form.poll_dictionary() {
-                form.set_text(DICTIONARY_STATUS, &error.to_string());
-            }
-            return LRESULT(0);
-        }
         WM_COMMAND if lp.0 != 0 => {
-            if let Err(error) = form.command(wp.0 as u16, (wp.0 >> 16) as u32) {
+            let id = wp.0 as u16;
+            let notification = (wp.0 >> 16) as u32;
+            let collection = match id {
+                OPEN_DICTIONARY => Some(Collection::Dictionary),
+                OPEN_SNIPPETS => Some(Collection::Snippets),
+                _ => Collection::for_field(id),
+            };
+            if let Some(collection) = collection {
+                let editor = form.editor(collection);
+                if let Err(error) = editor.command(id, notification) {
+                    editor.set_status(&error.to_string());
+                }
+            } else if let Err(error) = form.command(id, notification) {
                 let _ = form.refresh();
                 form.error(error);
+            }
+            return LRESULT(0);
+        }
+        WM_TIMER if matches!(wp.0, DICTIONARY_TIMER | SNIPPETS_TIMER) => {
+            let collection = if wp.0 == DICTIONARY_TIMER {
+                Collection::Dictionary
+            } else {
+                Collection::Snippets
+            };
+            let editor = form.editor(collection);
+            if let Err(error) = editor.poll() {
+                editor.set_status(&error.to_string());
             }
             return LRESULT(0);
         }
@@ -380,7 +394,7 @@ pub(super) fn attach(window: &Window) -> tauri::Result<()> {
             ),
             Kind::Meter => (w!("msctls_progress32"), WINDOW_STYLE(0)),
         };
-        let visibility = if on_dictionary_page(field.id) {
+        let visibility = if Collection::for_field(field.id).is_some() {
             WINDOW_STYLE::default()
         } else {
             WS_VISIBLE
@@ -416,7 +430,8 @@ pub(super) fn attach(window: &Window) -> tauri::Result<()> {
         dpi: Cell::default(),
         in_layout: Cell::default(),
         fonts: RefCell::default(),
-        dictionary: dictionary::Page::default(),
+        dictionary: entry_editor::Page::default(),
+        snippets: entry_editor::Page::default(),
         capturing: Cell::default(),
         chord: RefCell::default(),
         devices: RefCell::default(),

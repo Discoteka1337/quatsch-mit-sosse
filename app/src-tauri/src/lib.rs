@@ -32,6 +32,7 @@ struct Messages {
     audio_empty: String,
     recognizer_model_missing: String,
     dictionary_read_warning: String,
+    snippet_clipboard_warning: String,
     recognizer_fallback_notice: String,
     recognizer_fallback_failed: String,
     settings: String,

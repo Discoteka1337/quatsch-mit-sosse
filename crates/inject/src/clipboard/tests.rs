@@ -4,6 +4,23 @@ use windows::Win32::Graphics::Gdi::{CreateBitmap, GetBitmapBits, HBITMAP};
 use windows::Win32::System::Memory::GlobalSize;
 use windows::Win32::System::Ole::CF_DIB;
 
+#[test]
+fn a_pending_temporary_paste_blocks_reads_for_snippet_placeholders() {
+    let _pending = TRANSACTION.lock().unwrap();
+    assert_eq!(clipboard_text(), Err(InjectError::Busy));
+}
+
+#[test]
+fn snippet_clipboard_text_stops_at_the_first_nul_and_rejects_invalid_data() {
+    assert_eq!(
+        decode_clipboard_text(&[0x00df, 13, 10, 0xd83e, 0xdda6, 0, 65]).unwrap(),
+        "ß\r\n🦦"
+    );
+    assert_eq!(decode_clipboard_text(&[0]).unwrap(), "");
+    assert!(decode_clipboard_text(&[65]).is_err());
+    assert!(decode_clipboard_text(&[0xd800, 0]).is_err());
+}
+
 // Only clipboard access is simulated. The real allocation, duplication, publishing
 // order, transaction and cleanup code run against independent Win32 handles.
 #[derive(Default)]

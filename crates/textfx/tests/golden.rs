@@ -1,6 +1,6 @@
 use std::{collections::HashSet, fs, path::Path};
 
-use quatsch_mit_sosse_textfx::{FillerStrength, Pipeline, Rule};
+use quatsch_mit_sosse_textfx::{FillerStrength, Pipeline, Rule, Snippet, SnippetValue};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -23,6 +23,10 @@ struct Case {
     digits_from: Option<u32>,
     #[serde(default)]
     uncertain: Vec<String>,
+    #[serde(default)]
+    snippets: Vec<[String; 2]>,
+    clipboard: Option<String>,
+    cursor: Option<usize>,
 }
 
 #[derive(Default, Deserialize)]
@@ -86,16 +90,31 @@ fn run_all_golden_files() {
             if let Some(threshold) = case.digits_from {
                 pipeline.digits_from = threshold;
             }
-            let actual = pipeline.apply_with_review(&case.input);
+            pipeline.snippets = case
+                .snippets
+                .into_iter()
+                .map(|[trigger, text]| Snippet { trigger, text })
+                .collect();
+            let actual = pipeline.apply_with_snippets(&case.input, |value| match value {
+                SnippetValue::Date => "22.11.2026".into(),
+                SnippetValue::Time => "09:07".into(),
+                SnippetValue::Clipboard => case
+                    .clipboard
+                    .clone()
+                    .expect("unexpected clipboard request"),
+            });
             let uncertain: Vec<_> = actual
                 .uncertain
                 .iter()
                 .map(|range| &actual.text[range.clone()])
                 .collect();
-            if actual.text != case.expected || uncertain != case.uncertain {
+            if actual.text != case.expected
+                || uncertain != case.uncertain
+                || actual.cursor != case.cursor
+            {
                 failures.push(format!(
-                    "{id}: expected {:?} (uncertain {:?}), got {:?} (uncertain {uncertain:?})",
-                    case.expected, case.uncertain, actual.text
+                    "{id}: expected {:?} (uncertain {:?}, cursor {:?}), got {:?} (uncertain {uncertain:?}, cursor {:?})",
+                    case.expected, case.uncertain, case.cursor, actual.text, actual.cursor
                 ));
             }
             count += 1;
@@ -110,4 +129,49 @@ fn run_all_golden_files() {
         count - part_two_count >= 80,
         "Expected at least 80 golden cases from the first part"
     );
+}
+
+#[test]
+fn a_dictation_reads_each_requested_value_once() {
+    let mut pipeline = Pipeline::new([Rule::Snippets]);
+    pipeline.snippets = vec![Snippet {
+        trigger: "Vorlage".into(),
+        text: "{zwischenablage} {zwischenablage}".into(),
+    }];
+    let mut reads = 0;
+    let actual = pipeline.apply_with_snippets("Vorlage. Vorlage!", |value| {
+        assert_eq!(value, SnippetValue::Clipboard);
+        reads += 1;
+        "Kopie".into()
+    });
+    assert_eq!(actual.text, "Kopie Kopie Kopie Kopie");
+    assert_eq!(reads, 1);
+}
+
+#[test]
+fn an_unavailable_placeholder_keeps_only_the_affected_sentences() {
+    let mut pipeline = Pipeline::new([Rule::Snippets]);
+    pipeline.snippets = vec![
+        Snippet {
+            trigger: "Eins".into(),
+            text: "Erster Treffer.".into(),
+        },
+        Snippet {
+            trigger: "Zwei".into(),
+            text: "Verworfen{cursor}{zwischenablage}".into(),
+        },
+        Snippet {
+            trigger: "Drei".into(),
+            text: "Ende{cursor}.".into(),
+        },
+    ];
+    let mut reads = 0;
+    let result = pipeline.apply_with_snippet_values("Eins. Zwei?! Zwei. Drei!", |value| {
+        assert_eq!(value, SnippetValue::Clipboard);
+        reads += 1;
+        None
+    });
+    assert_eq!(reads, 1);
+    assert_eq!(result.text, "Erster Treffer. Zwei?! Zwei. Ende.");
+    assert_eq!(result.cursor, result.text.rfind('.'));
 }

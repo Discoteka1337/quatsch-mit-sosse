@@ -3,6 +3,7 @@ mod date;
 
 use crate::tokens::{Kind, Token, word_key};
 pub(crate) use cardinal::cardinal;
+pub(crate) use date::named_month;
 
 pub(super) fn apply(tokens: &mut Vec<Token>, digits_from: u32) {
     let mut input = std::mem::take(tokens).into_iter();

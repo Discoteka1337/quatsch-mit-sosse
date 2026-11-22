@@ -13,6 +13,8 @@ pub(super) enum Kind {
     Protected,
     // A correction with an ambiguous scope is kept verbatim for review.
     Uncertain,
+    // A zero-width marker between literal pieces of an expanded snippet.
+    Cursor,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -1,5 +1,8 @@
 mod csv_io;
 mod migration;
+mod snippets;
+
+pub use snippets::{SnippetDraft, SnippetEntry};
 
 use std::{
     fs,
@@ -20,9 +23,9 @@ const INSERT_ENTRY: &str =
 pub enum Error {
     #[error("LOCALAPPDATA enthält keinen absoluten Datenpfad.")]
     DataPath,
-    #[error("Die Wörterbuchdatei konnte nicht gelesen oder geschrieben werden.")]
+    #[error("Die Datei konnte nicht gelesen oder geschrieben werden.")]
     File,
-    #[error("Die Wörterbuchdatenbank konnte nicht gelesen oder geschrieben werden.")]
+    #[error("Die lokale Datenbank konnte nicht gelesen oder geschrieben werden.")]
     Database,
     #[error("Die Sicherung vor der Datenbankmigration ist fehlgeschlagen.")]
     Backup,
@@ -32,9 +35,13 @@ pub enum Error {
         "Begriff und einzelne Varianten müssen Text auf jeweils einer Zeile enthalten. Nullzeichen sind unzulässig."
     )]
     InvalidEntry,
+    #[error("Der Auslöser braucht Text auf einer Zeile. Nullzeichen sind unzulässig.")]
+    InvalidSnippet,
+    #[error("Diesen Auslöser gibt es bereits.")]
+    DuplicateTrigger,
     #[error("Diesen Begriff gibt es bereits.")]
     Duplicate,
-    #[error("Der Wörterbucheintrag ist nicht mehr vorhanden.")]
+    #[error("Der Eintrag ist nicht mehr vorhanden.")]
     MissingEntry,
     #[error("Die CSV-Datei enthält ungültige Spalten oder Werte.")]
     InvalidCsv,

@@ -17,18 +17,38 @@ struct CsvEntry {
     created_at: Option<i64>,
 }
 
+pub(super) fn validate_headers(
+    headers: &csv::StringRecord,
+    required: &[&str],
+    allowed: &[&str],
+) -> Result<()> {
+    if required
+        .iter()
+        .any(|name| !headers.iter().any(|h| h == *name))
+        || headers
+            .iter()
+            .enumerate()
+            .any(|(i, h)| !allowed.contains(&h) || headers.iter().take(i).any(|p| p == h))
+    {
+        return Err(Error::InvalidCsv);
+    }
+    Ok(())
+}
+
+pub(super) fn export_writer<W: Write>(writer: W, headers: &[&str]) -> Result<csv::Writer<W>> {
+    let mut csv = csv::WriterBuilder::new()
+        .has_headers(false)
+        .terminator(csv::Terminator::CRLF)
+        .from_writer(writer);
+    csv.write_record(headers).map_err(|_| Error::File)?;
+    Ok(csv)
+}
+
 impl Store {
     pub fn import_csv(&mut self, reader: impl Read) -> Result<usize> {
         let mut reader = csv::Reader::from_reader(reader);
         let headers = reader.headers().map_err(|_| Error::InvalidCsv)?;
-        if !headers.iter().any(|h| h == "term")
-            || headers
-                .iter()
-                .enumerate()
-                .any(|(i, h)| !HEADERS.contains(&h) || headers.iter().take(i).any(|p| p == h))
-        {
-            return Err(Error::InvalidCsv);
-        }
+        validate_headers(headers, &["term"], &HEADERS)?;
         // Only fields present in the file may overwrite an existing entry.
         let mut sql = format!(
             "{INSERT_ENTRY} ON CONFLICT(term_key) DO UPDATE SET
@@ -62,11 +82,7 @@ impl Store {
     }
 
     pub fn export_csv(&self, writer: impl Write) -> Result<()> {
-        let mut csv = csv::WriterBuilder::new()
-            .has_headers(false)
-            .terminator(csv::Terminator::CRLF)
-            .from_writer(writer);
-        csv.write_record(HEADERS).map_err(|_| Error::File)?;
+        let mut csv = export_writer(writer, &HEADERS)?;
         for entry in self.list("")? {
             let aliases = serde_json::to_string(&entry.aliases).map_err(|_| Error::InvalidEntry)?;
             csv.serialize((

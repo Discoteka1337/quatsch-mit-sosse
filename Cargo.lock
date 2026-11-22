@@ -3423,6 +3423,7 @@ version = "0.1.0"
 dependencies = [
  "csv",
  "icu_normalizer",
+ "quatsch-mit-sosse-textfx",
  "rusqlite",
  "serde",
  "serde_json",
@@ -3448,6 +3449,7 @@ name = "quatsch-mit-sosse-textfx"
 version = "0.1.0"
 dependencies = [
  "icu_normalizer",
+ "icu_properties",
  "serde",
  "toml 0.8.2",
  "unicode-ident",

@@ -3,8 +3,13 @@ use std::{fs, path::Path};
 use rusqlite::{Connection, MAIN_DB, OpenFlags, TransactionBehavior, backup::NO_PROGRESS};
 
 use crate::{Error, Result};
+use quatsch_mit_sosse_textfx::snippet_trigger_key;
+use rusqlite::functions::FunctionFlags;
 
-const MIGRATIONS: &[&str] = &[include_str!("../migrations/001_dictionary.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("../migrations/001_dictionary.sql"),
+    include_str!("../migrations/002_snippets.sql"),
+];
 
 fn version(db: &Connection) -> Result<usize> {
     let version: i64 = db.pragma_query_value(None, "user_version", |row| row.get(0))?;
@@ -23,6 +28,14 @@ pub(super) fn migrate(db: &mut Connection, path: &Path) -> Result<()> {
             break;
         };
         backup(path, current).map_err(|_| Error::Backup)?;
+        if current == 1 {
+            tx.create_scalar_function(
+                "qms_trigger_key",
+                1,
+                FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+                |ctx| Ok(snippet_trigger_key(ctx.get_raw(0).as_str()?)),
+            )?;
+        }
         tx.execute_batch(sql)?;
         tx.pragma_update(None, "user_version", (current + 1) as i64)?;
         tx.commit()?;

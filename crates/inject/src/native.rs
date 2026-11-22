@@ -71,7 +71,12 @@ impl InsertTarget {
         }
     }
 
-    fn deliver(&self, text: &str, config: &InjectConfig) -> Result<InjectMethod, InjectError> {
+    fn deliver(
+        &self,
+        text: &str,
+        config: &InjectConfig,
+        cursor: Option<usize>,
+    ) -> Result<InjectMethod, InjectError> {
         self.check_foreground()?;
         let forced = if config.apps.is_empty() || is_long(text) {
             None
@@ -81,21 +86,35 @@ impl InsertTarget {
         route(text, forced, |method| {
             self.check_foreground()?;
             match method {
-                InjectMethod::UiAutomation => uia::insert(self, text),
-                InjectMethod::Unicode => keyboard::insert(self, text),
-                InjectMethod::Clipboard => clipboard::paste(self, text),
+                InjectMethod::UiAutomation => uia::insert(self, text, cursor),
+                InjectMethod::Unicode => uia::with_caret(self, text, cursor, || {
+                    keyboard::insert(self, text).map(|()| true)
+                }),
+                InjectMethod::Clipboard => uia::with_caret(self, text, cursor, || {
+                    clipboard::paste(self, text).map(|()| true)
+                }),
             }
         })
     }
 
     /// Run the insertion on a dedicated COM thread bound to the captured window.
     pub fn insert(self, text: &str, config: &InjectConfig) -> Result<InjectMethod, InjectError> {
+        self.insert_with_cursor(text, config, None)
+    }
+
+    /// Insert once and request a caret at the UTF-8 byte offset if the target supports it.
+    pub fn insert_with_cursor(
+        self,
+        text: &str,
+        config: &InjectConfig,
+        cursor: Option<usize>,
+    ) -> Result<InjectMethod, InjectError> {
         static INSERTION: Mutex<()> = Mutex::new(());
         let _guard = INSERTION.try_lock().map_err(|_| InjectError::Busy)?;
         std::thread::scope(|scope| {
             let worker = std::thread::Builder::new()
                 .name("qms-inject".into())
-                .spawn_scoped(scope, move || self.deliver(text, config))
+                .spawn_scoped(scope, move || self.deliver(text, config, cursor))
                 .map_err(|_| InjectError::Unavailable)?;
             worker.join().unwrap_or(Err(InjectError::DeliveryUncertain))
         })

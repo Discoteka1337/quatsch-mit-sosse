@@ -11,7 +11,7 @@ mod native;
 mod uia;
 
 #[cfg(windows)]
-pub use clipboard::copy_recovered_text;
+pub use clipboard::{clipboard_text, copy_recovered_text};
 pub use config::InjectConfig;
 #[cfg(windows)]
 use native::InsertTarget as Target;
