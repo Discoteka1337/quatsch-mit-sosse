@@ -60,3 +60,30 @@ jobs:
 
       - name: Cargo fmt, Clippy, Workspace-Tests, UI-Check, UI-Tests und Datenschutz prüfen
         run: powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/check.ps1"
+
+      - name: Geprüften Windows-Build aus Schritt 3.1 zusammenstellen
+        if: github.ref == 'refs/heads/build/schritt-3-1'
+        run: |
+          . ".\scripts\import-msvc.ps1"
+          Import-MsvcEnvironment
+          $package = Join-Path "$env:RUNNER_TEMP" "quatsch-mit-sosse-windows-x64"
+          [System.IO.Directory]::CreateDirectory("$package") | Out-Null
+          foreach ($file in @('quatsch-mit-sosse.exe', 'sherpa-onnx-c-api.dll', 'onnxruntime.dll', 'onnxruntime_providers_shared.dll')) {
+            Copy-Item -LiteralPath "$env:CARGO_TARGET_DIR\debug\$file" -Destination "$package" -ErrorAction Stop
+          }
+          $crt = Get-Item -Path "$env:VCToolsRedistDir\x64\Microsoft.VC*.CRT" -ErrorAction Stop |
+            Where-Object { Test-Path -LiteralPath "$($_.FullName)\vcruntime140.dll" } | Select-Object -First 1
+          foreach ($file in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+            Copy-Item -LiteralPath "$($crt.FullName)\$file" -Destination "$package" -ErrorAction Stop
+          }
+          powershell -NoProfile -ExecutionPolicy Bypass -File "scripts/native-ui.Tests.ps1" -ExecutablePath "$package\quatsch-mit-sosse.exe"
+          exit $LASTEXITCODE
+
+      - name: Windows-Build aus Schritt 3.1 zum Herunterladen bereitstellen
+        if: github.ref == 'refs/heads/build/schritt-3-1'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: quatsch-mit-sosse-schritt-3-1-windows-x64
+          path: ${{ runner.temp }}/quatsch-mit-sosse-windows-x64/
+          if-no-files-found: error
+          retention-days: 7
