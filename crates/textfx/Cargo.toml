@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 icu_normalizer = { version = "2.4.0", default-features = false, features = ["compiled_data", "utf8_iter"] }
 unicode-ident = "1"
+unicode-segmentation = "1"
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }

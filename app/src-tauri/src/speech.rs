@@ -3,9 +3,8 @@ use quatsch_mit_sosse_models::Manager;
 use quatsch_mit_sosse_stt::{EngineConfig, Error as SttError, SpeechEngine, create_engine};
 use std::cell::OnceCell;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use unicode_segmentation::UnicodeSegmentation;
 
-const PRIMELINE_MODEL: &str = "parakeet-primeline-de-int8";
+pub(super) const PRIMELINE_MODEL: &str = "parakeet-primeline-de-int8";
 pub(super) const DEFAULT_MODEL: &str = PRIMELINE_MODEL;
 pub(super) const FALLBACK_MODEL: &str = "parakeet-v3-int8";
 pub(super) const WHISPER_MODEL: &str = "whisper-large-v3-turbo";
@@ -265,7 +264,7 @@ impl Recognizer {
         model: &'static str,
         samples: &[f32],
         on_fallback: impl FnMut(String),
-    ) -> Result<String, String> {
+    ) -> Result<(&'static str, String), String> {
         let manager = OnceCell::new();
         transcribe_with_fallback(
             model,
@@ -291,42 +290,8 @@ impl Recognizer {
         }
         let (_, engine) = self.engine.as_mut().expect("engine created above");
         // SpeechEngine runs Silero first and loads ASR only when it finds speech.
-        let text = engine.transcribe(samples, SAMPLE_RATE, Some("de"))?.text;
-        Ok(if model == PRIMELINE_MODEL && text.contains("ss") {
-            restore_primeline_sharp_s(&text)
-        } else {
-            text
-        })
+        Ok(engine.transcribe(samples, SAMPLE_RATE, Some("de"))?.text)
     }
-}
-
-// Keep these whole-word spellings tied to observed German dictation.
-// Ambiguous words such as "Masse" and "Busse" require context.
-fn restore_primeline_sharp_s(text: &str) -> String {
-    let mut result = String::with_capacity(text.len());
-    for token in text.split_inclusive(char::is_whitespace) {
-        // Preserve technical spellings in email addresses, URLs and paths.
-        if !token.contains("ss") || token.contains(['@', '/', '\\']) {
-            result.push_str(token);
-            continue;
-        }
-        result.extend(token.split_word_bounds().map(|word| match word {
-            "Übermass" => "Übermaß",
-            "übermass" => "übermaß",
-            "Grüsse" => "Grüße",
-            "grüsse" => "grüße",
-            "Strasse" => "Straße",
-            "strasse" => "straße",
-            "Draussen" => "Draußen",
-            "draussen" => "draußen",
-            "Grossen" => "Großen",
-            "grossen" => "großen",
-            "Fuss" => "Fuß",
-            "fuss" => "fuß",
-            _ => word,
-        }));
-    }
-    result
 }
 
 fn recognition_message(error: &SttError) -> String {
@@ -342,9 +307,9 @@ fn transcribe_with_fallback(
     mut recognize: impl FnMut(&'static str, &[f32]) -> Result<String, SttError>,
     mut installed: impl FnMut(&str) -> Result<bool, String>,
     mut on_fallback: impl FnMut(String),
-) -> Result<String, String> {
+) -> Result<(&'static str, String), String> {
     let error = match recognize(model, samples) {
-        Ok(text) => return Ok(text),
+        Ok(text) => return Ok((model, text)),
         Err(error) => error,
     };
     let reason = recognition_message(&error);
@@ -366,11 +331,13 @@ fn transcribe_with_fallback(
         return Err(reason);
     }
     on_fallback(crate::messages().recognizer_fallback_notice.clone());
-    recognize(FALLBACK_MODEL, samples).map_err(|error| {
-        crate::messages()
-            .recognizer_fallback_failed
-            .replace("{reason}", &recognition_message(&error))
-    })
+    recognize(FALLBACK_MODEL, samples)
+        .map(|text| (FALLBACK_MODEL, text))
+        .map_err(|error| {
+            crate::messages()
+                .recognizer_fallback_failed
+                .replace("{reason}", &recognition_message(&error))
+        })
 }
 
 #[cfg(test)]

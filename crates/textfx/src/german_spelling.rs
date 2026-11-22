@@ -52,3 +52,53 @@ pub(super) fn apply(tokens: &mut [Token]) {
         }
     }
 }
+
+// The model-specific spellings respect whole Unicode words and exclude the
+// entire whitespace-delimited field of an email address, URL or file path.
+pub(super) fn apply_primeline(tokens: &mut [Token]) {
+    use std::collections::HashMap;
+    use unicode_segmentation::UnicodeSegmentation;
+    if !tokens
+        .iter()
+        .any(|token| token.kind == Kind::Word && token.text.contains("ss"))
+    {
+        return;
+    }
+    let text: String = tokens.iter().map(|token| token.text.as_str()).collect();
+    let mut replacements = HashMap::new();
+    let mut start = 0;
+    for field in text.split_inclusive(char::is_whitespace) {
+        if field.contains("ss") && !field.contains(['@', '/', '\\']) {
+            for (at, word) in field.split_word_bound_indices() {
+                let written = match word {
+                    "Übermass" => "Übermaß",
+                    "übermass" => "übermaß",
+                    "Grüsse" => "Grüße",
+                    "grüsse" => "grüße",
+                    "Strasse" => "Straße",
+                    "strasse" => "straße",
+                    "Draussen" => "Draußen",
+                    "draussen" => "draußen",
+                    "Grossen" => "Großen",
+                    "grossen" => "großen",
+                    "Fuss" => "Fuß",
+                    "fuss" => "fuß",
+                    _ => continue,
+                };
+                replacements.insert(start + at, (word, written));
+            }
+        }
+        start += field.len();
+    }
+    let mut offset = 0;
+    for token in tokens {
+        let start = offset;
+        offset += token.text.len();
+        if token.kind == Kind::Word
+            && let Some(&(word, written)) = replacements.get(&start)
+            && token.text == word
+        {
+            token.text = written.into();
+        }
+    }
+}

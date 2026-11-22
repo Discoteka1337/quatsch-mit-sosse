@@ -3,3 +3,12 @@ name = "quatsch-mit-sosse-store"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+
+[dependencies]
+csv = "1.4"
+icu_normalizer = { version = "2.4.0", default-features = false, features = ["compiled_data", "utf8_iter"] }
+rusqlite = { version = "0.43", features = ["backup", "bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+thiserror = "2"

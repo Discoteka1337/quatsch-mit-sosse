@@ -51,3 +51,19 @@ fn layout_keeps_columns_separate_at_minimum_width_and_high_dpi() {
         assert_eq!(placement(HIDE_FROM_CAPTURE, width, dpi, 30).y, last.y - 30);
     }
 }
+
+#[test]
+fn dictionary_csv_commands_round_trip_the_selected_files() {
+    use dictionary::Action;
+    use quatsch_mit_sosse_store::Store;
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(dir.path().join("test.db")).unwrap();
+    let csv = dir.path().join("Meine Wörter.csv");
+    Action::Export(csv.clone()).run(&mut store).unwrap();
+    let codex = store.list("kodex").unwrap().remove(0);
+    store.delete(codex.id).unwrap();
+    Action::Import(csv).run(&mut store).unwrap();
+    let restored = store.list("kodex").unwrap().remove(0);
+    assert_eq!(restored.term, "Codex");
+    assert_eq!(restored.aliases, codex.aliases);
+}

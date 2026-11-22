@@ -18,6 +18,24 @@ pub(super) const AUTOSTART: u16 = 112;
 pub(super) const SHOW_READY: u16 = 113;
 pub(super) const HIDE_FROM_CAPTURE: u16 = 114;
 pub(super) const STATUS: u16 = 115;
+pub(super) const OPEN_DICTIONARY: u16 = 116;
+pub(super) const DICTIONARY_TITLE: u16 = 301;
+pub(super) const GENERAL: u16 = 302;
+pub(super) const SEARCH: u16 = 303;
+pub(super) const ENTRIES: u16 = 304;
+pub(super) const TERM: u16 = 305;
+pub(super) const REPLACEMENT: u16 = 306;
+pub(super) const ALIASES: u16 = 307;
+pub(super) const SAVE: u16 = 308;
+pub(super) const NEW: u16 = 309;
+pub(super) const DELETE: u16 = 310;
+pub(super) const IMPORT: u16 = 311;
+pub(super) const EXPORT: u16 = 312;
+pub(super) const DICTIONARY_STATUS: u16 = 313;
+
+pub(super) fn on_dictionary_page(id: u16) -> bool {
+    id >= DICTIONARY_TITLE
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Kind {
@@ -26,6 +44,9 @@ pub(super) enum Kind {
     Check,
     Combo,
     Meter,
+    Edit,
+    Multiline,
+    List,
 }
 use Kind::*;
 
@@ -52,7 +73,8 @@ pub(super) static FIELDS: std::sync::LazyLock<Vec<Field>> = std::sync::LazyLock:
     let l = &*LABELS;
     let messages = crate::messages();
     [
-        (TITLE, Text, l.general_title.as_str(), Full, 16, 38),
+        (TITLE, Text, l.general_title.as_str(), Left, 16, 38),
+        (OPEN_DICTIONARY, Button, &l.dictionary_title, Right, 18, 32),
         (201, Text, &l.general_dictation, Left, 66, 22),
         (DICTATION, Button, "", Left, 90, 30),
         (202, Text, &l.general_reinsert, Right, 66, 22),
@@ -90,6 +112,24 @@ pub(super) static FIELDS: std::sync::LazyLock<Vec<Field>> = std::sync::LazyLock:
             28,
         ),
         (STATUS, Text, "", Full, 486, 44),
+        (DICTIONARY_TITLE, Text, &l.dictionary_title, Left, 16, 38),
+        (GENERAL, Button, &l.general_title, Right, 18, 32),
+        (320, Text, &l.dictionary_search, Full, 60, 22),
+        (SEARCH, Edit, "", Full, 82, 28),
+        (321, Text, &l.dictionary_entries, Full, 118, 22),
+        (ENTRIES, List, "", Full, 140, 100),
+        (322, Text, &l.dictionary_term, Left, 248, 22),
+        (TERM, Edit, "", Left, 270, 28),
+        (323, Text, &l.dictionary_replacement, Right, 248, 22),
+        (REPLACEMENT, Multiline, "", Right, 270, 48),
+        (324, Text, &l.dictionary_aliases, Full, 322, 22),
+        (ALIASES, Multiline, "", Full, 344, 54),
+        (SAVE, Button, &l.dictionary_add, Left, 408, 30),
+        (NEW, Button, &l.dictionary_new, ActionLeft, 408, 30),
+        (DELETE, Button, &l.dictionary_delete, ActionRight, 408, 30),
+        (IMPORT, Button, &l.dictionary_import, Left, 450, 30),
+        (EXPORT, Button, &l.dictionary_export, Right, 450, 30),
+        (DICTIONARY_STATUS, Text, "", Full, 486, 44),
     ]
     .into_iter()
     .map(|(id, kind, text, column, y, height)| Field {
@@ -178,7 +218,11 @@ fn place(form: &Form) -> io::Result<()> {
         let child = form.control(field.id);
         let rect = placement(field.id, bounds.right, dpi, offset);
         if let Some((body, title)) = &new_fonts {
-            let font = if field.id == TITLE { title } else { body };
+            let font = if matches!(field.id, TITLE | DICTIONARY_TITLE) {
+                title
+            } else {
+                body
+            };
             send(child, WM_SETFONT, font.0, 1);
         }
         let height = if field.kind == Kind::Combo {

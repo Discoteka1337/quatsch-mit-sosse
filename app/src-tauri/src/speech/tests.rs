@@ -127,77 +127,23 @@ fn reuses_the_selected_speech_engine_and_passes_the_whole_recording() {
     for _ in 0..2 {
         assert_eq!(
             recognizer.transcribe(DEFAULT_MODEL, &[0.25, 0.5], |_| panic!("unexpected retry")),
-            Ok("Grüße".into())
+            Ok((DEFAULT_MODEL, "Grüße".into()))
         );
     }
 }
 
 #[test]
-fn german_dictation_recovers_sharp_s_without_changing_valid_double_s() {
+fn recognizer_preserves_spelling_for_personal_dictionary_matching() {
     let mut recognizer = Recognizer {
         engine: Some((
             DEFAULT_MODEL,
-            Box::new(FakeEngine(
-                "Äpfel, Öl & Übermass – 3,5 % für 12,99 €. Die Masse muss stimmen.",
-            )),
+            Box::new(FakeEngine("Grüsse aus der Strasse.")),
         )),
     };
     assert_eq!(
         recognizer.transcribe(DEFAULT_MODEL, &[0.25, 0.5], |_| panic!("unexpected retry")),
-        Ok("Äpfel, Öl & Übermaß – 3,5 % für 12,99 €. Die Masse muss stimmen.".into())
+        Ok((DEFAULT_MODEL, "Grüsse aus der Strasse.".into()))
     );
-}
-
-#[test]
-fn sharp_s_correction_preserves_case_and_only_changes_whole_words() {
-    let mut recognizer = Recognizer {
-        engine: Some((
-            DEFAULT_MODEL,
-            Box::new(FakeEngine(
-                "„übermass“, Übermaß! ÜBERMASS  mein_Übermass Übermass2 Übermassiv",
-            )),
-        )),
-    };
-    assert_eq!(
-        recognizer.transcribe(DEFAULT_MODEL, &[0.25, 0.5], |_| panic!("unexpected retry")),
-        Ok("„übermaß“, Übermaß! ÜBERMASS  mein_Übermass Übermass2 Übermassiv".into())
-    );
-}
-
-#[test]
-fn sharp_s_correction_covers_the_other_reproduced_primeline_spellings() {
-    let mut recognizer = Recognizer {
-        engine: Some((
-            DEFAULT_MODEL,
-            Box::new(FakeEngine(
-                "Grüsse von der Strasse, draussen am grossen Fuss. Die Masse muss stimmen.",
-            )),
-        )),
-    };
-    assert_eq!(
-        recognizer.transcribe(DEFAULT_MODEL, &[0.25, 0.5], |_| panic!("unexpected retry")),
-        Ok("Grüße von der Straße, draußen am großen Fuß. Die Masse muss stimmen.".into())
-    );
-}
-
-#[test]
-fn sharp_s_correction_preserves_addresses_paths_and_fallback_output() {
-    const INPUT: &str = "Strasse, https://example.test/Strasse Fuss@example.test C:\\Fuss\\a";
-    for (model, expected) in [
-        (
-            DEFAULT_MODEL,
-            "Straße, https://example.test/Strasse Fuss@example.test C:\\Fuss\\a",
-        ),
-        (FALLBACK_MODEL, INPUT),
-    ] {
-        let mut recognizer = Recognizer {
-            engine: Some((model, Box::new(FakeEngine(INPUT)))),
-        };
-        assert_eq!(
-            recognizer.transcribe(model, &[0.25, 0.5], |_| panic!("unexpected retry")),
-            Ok(expected.to_owned())
-        );
-    }
 }
 
 #[test]
@@ -231,7 +177,7 @@ fn primeline_load_errors_retry_the_same_audio_once_and_announce_v3_before_loadin
                 assert!(!notified.replace(true));
             },
         );
-        assert_eq!(result, Ok("Grüße".into()));
+        assert_eq!(result, Ok((FALLBACK_MODEL, "Grüße".into())));
         assert_eq!(attempts, [DEFAULT_MODEL, FALLBACK_MODEL]);
     }
 }

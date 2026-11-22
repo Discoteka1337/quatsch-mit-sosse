@@ -1,7 +1,32 @@
 use crate::{OverlayState, messages};
 
+mod dictionary;
 mod runtime;
+use dictionary::Transcript;
 pub(super) use runtime::{Controller, report_error};
+
+fn with_warning(
+    state: OverlayState,
+    warning: &mut Option<String>,
+    ready_text: &str,
+) -> OverlayState {
+    if !matches!(state, OverlayState::Ready | OverlayState::Error { .. }) {
+        return state;
+    }
+    let Some(warning) = warning.take() else {
+        return state;
+    };
+    match state {
+        OverlayState::Error { message, text } => OverlayState::Error {
+            message: format!("{message} {warning}"),
+            text,
+        },
+        _ => OverlayState::Error {
+            message: warning,
+            text: ready_text.to_owned(),
+        },
+    }
+}
 
 trait Ports {
     type Target: Copy;
@@ -26,6 +51,7 @@ struct Session<P: Ports> {
     ports: P,
     phase: Phase<P::Target>,
     last: String,
+    warning: Option<String>,
     administrator_hint: bool,
 }
 
@@ -35,6 +61,7 @@ impl<P: Ports> Session<P> {
             ports,
             phase: Phase::Idle,
             last: String::new(),
+            warning: None,
             administrator_hint: false,
         }
     }
@@ -117,14 +144,15 @@ impl<P: Ports> Session<P> {
         }
     }
 
-    fn recognized(&mut self, result: Result<String, String>) {
+    fn recognized(&mut self, result: Result<Transcript, String>) {
         let Phase::Recognizing { target } = self.phase else {
             return;
         };
         self.phase = Phase::Idle;
         match result {
-            Ok(text) if !text.trim().is_empty() => {
-                self.last = text;
+            Ok(transcript) if !transcript.text.trim().is_empty() => {
+                self.last = transcript.text;
+                self.warning = transcript.warning;
                 self.repeat(target);
             }
             Ok(_) => self.error(messages().no_speech.clone()),
@@ -166,7 +194,8 @@ impl<P: Ports> Session<P> {
 
     fn show(&mut self, state: OverlayState) {
         self.administrator_hint = matches!(state, OverlayState::Administrator);
-        self.ports.show(state);
+        self.ports
+            .show(with_warning(state, &mut self.warning, &self.last));
     }
 }
 

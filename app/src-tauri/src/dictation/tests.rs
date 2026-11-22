@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "dictionary_tests.rs"]
+mod dictionary;
+
 #[test]
 fn mixer_faults_preserve_dictation_and_appear_when_its_status_is_settled() {
     let mut warning = Some("Mixer nicht erreichbar.".into());
@@ -9,12 +12,12 @@ fn mixer_faults_preserve_dictation_and_appear_when_its_status_is_settled() {
         OverlayState::Inserting,
     ] {
         assert!(!matches!(
-            runtime::with_mixer_warning(state, &mut warning),
+            with_warning(state, &mut warning, ""),
             OverlayState::Error { .. }
         ));
     }
     assert!(
-        matches!(runtime::with_mixer_warning(OverlayState::Ready, &mut warning),
+        matches!(with_warning(OverlayState::Ready, &mut warning, ""),
         OverlayState::Error { message, .. } if message == "Mixer nicht erreichbar.")
     );
     assert!(warning.is_none());
@@ -23,7 +26,7 @@ fn mixer_faults_preserve_dictation_and_appear_when_its_status_is_settled() {
         text: "Mein Diktat".into(),
     };
     assert!(
-        matches!(runtime::with_mixer_warning(failure, &mut Some("Mixerfehler.".into())),
+        matches!(with_warning(failure, &mut Some("Mixerfehler.".into()), ""),
         OverlayState::Error { message, text } if message.contains("Mixerfehler.") && message.contains("Einfügen") && text == "Mein Diktat")
     );
 }
@@ -107,7 +110,7 @@ fn records_transcribes_then_keeps_the_exact_text_after_failed_insertion() {
     assert!(matches!(s.ports.overlay, OverlayState::Processing));
     assert!(!s.start(Some(2)));
     s.stop();
-    s.recognized(Ok("Grüße aus Köln.".into()));
+    s.recognized(Ok(Transcript::plain("Grüße aus Köln.".into())));
     assert!(matches!(s.ports.overlay, OverlayState::Inserting));
     s.inserted(Err("Ziel gewechselt".into()));
     assert!(
@@ -176,7 +179,7 @@ fn silence_and_recognition_errors_preserve_the_previous_result() {
     ] {
         s.start(Some(1));
         s.stop();
-        s.recognized(result);
+        s.recognized(result.map(Transcript::plain));
         if matches!(s.ports.overlay, OverlayState::Inserting) {
             s.inserted(Ok(()));
         }
@@ -193,7 +196,7 @@ fn elevated_window_during_inference_leaves_the_new_text_for_manual_recovery() {
     s.start(Some(1));
     s.stop();
     s.elevated();
-    s.recognized(Ok("Zwei.".into()));
+    s.recognized(Ok(Transcript::plain("Zwei.".into())));
     assert!(s.ports.inserts.is_empty());
     assert!(matches!(&s.ports.overlay, OverlayState::Error { text, .. } if text == "Zwei."));
     s.target_available();

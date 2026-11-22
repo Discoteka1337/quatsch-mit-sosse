@@ -86,16 +86,18 @@ fn split(input: &str) -> Vec<Token> {
     tokens
 }
 
-fn dictionary_key(token: &Token) -> String {
+pub(super) fn dictionary_key(token: &Token) -> String {
     match token.kind {
         Kind::Word => word_key(&token.text),
         Kind::Space => " ".to_owned(),
+        Kind::Protected => word_key(&token.text.split_whitespace().collect::<Vec<_>>().join(" ")),
         _ => token.text.clone(),
     }
 }
 
-fn mark_names(tokens: &[Token], names: &[String], protected: &mut [bool]) {
-    if names.is_empty() {
+fn mark_names<'a>(tokens: &[Token], names: impl Iterator<Item = &'a str>, protected: &mut [bool]) {
+    let mut names = names.peekable();
+    if names.peek().is_none() {
         return;
     }
     let keys: Vec<_> = tokens.iter().map(dictionary_key).collect();
@@ -170,10 +172,39 @@ fn mark_numbers(tokens: &[Token], protected: &mut [bool]) {
 }
 
 pub(super) fn tokenize(input: &str, proper_names: &[String]) -> Vec<Token> {
-    let tokens = split(input);
+    tokenize_with_terms(input, proper_names, &[], false)
+}
+
+pub(super) fn tokenize_with_terms(
+    input: &str,
+    proper_names: &[String],
+    terms: &[crate::DictionaryEntry],
+    keep_term_boundaries: bool,
+) -> Vec<Token> {
+    let mut tokens = split(input);
     let mut protected = vec![false; tokens.len()];
-    mark_names(&tokens, proper_names, &mut protected);
+    mark_names(
+        &tokens,
+        proper_names.iter().map(String::as_str),
+        &mut protected,
+    );
     mark_numbers(&tokens, &mut protected);
+    if !terms.is_empty() {
+        let names = terms.iter().map(|entry| entry.term.as_str());
+        if keep_term_boundaries {
+            // Commands run first. Shield registered words while keeping their
+            // boundaries available for a longer spoken variant in the next stage.
+            let mut registered = vec![false; tokens.len()];
+            mark_names(&tokens, names, &mut registered);
+            for (token, named) in tokens.iter_mut().zip(registered) {
+                if named && token.kind == Kind::Word {
+                    token.kind = Kind::Protected;
+                }
+            }
+        } else {
+            mark_names(&tokens, names, &mut protected);
+        }
+    }
     if !protected.contains(&true) {
         return tokens;
     }

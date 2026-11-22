@@ -18,19 +18,20 @@ quatsch-mit-sosse-audio = { path = "../../crates/audio" }
 quatsch-mit-sosse-hotkey = { path = "../../crates/hotkey" }
 quatsch-mit-sosse-inject = { path = "../../crates/inject" }
 quatsch-mit-sosse-models = { path = "../../crates/models" }
+quatsch-mit-sosse-store = { path = "../../crates/store" }
 quatsch-mit-sosse-stt = { path = "../../crates/stt" }
+quatsch-mit-sosse-textfx = { path = "../../crates/textfx" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
 sha2 = "0.10"
 tauri = { version = "~2.12.6", features = ["tray-icon", "unstable"] }
 tauri-plugin-single-instance = "2"
-unicode-segmentation = "1"
 windows = { version = "0.62.2", features = [
     "Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_Security",
     "Win32_Media_Audio", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant",
     "Win32_System_Registry", "Win32_System_SystemServices", "Win32_System_Threading",
-    "Win32_UI_Controls", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell",
+    "Win32_UI_Controls", "Win32_UI_Controls_Dialogs", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
 

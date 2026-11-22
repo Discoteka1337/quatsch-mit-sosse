@@ -26,6 +26,7 @@ use windows::{
 };
 
 mod capture;
+mod dictionary;
 mod labels;
 mod layout;
 mod probe;
@@ -40,6 +41,7 @@ const FIELD_BLUR: u32 = WM_APP + 23;
 const FIELD_FOCUS: u32 = WM_APP + 24;
 const PROBE_TIMER: usize = 0x514d;
 const REMOVE_TIMER: usize = 0x514e;
+const DICTIONARY_TIMER: usize = 0x5150;
 
 fn scale(value: i32, dpi: u32) -> i32 {
     (i64::from(value) * i64::from(dpi.max(96)) / 96) as i32
@@ -91,6 +93,7 @@ struct Form {
     dpi: Cell<u32>,
     in_layout: Cell<bool>,
     fonts: RefCell<Option<(Font, Font)>>,
+    dictionary: dictionary::Page,
     capturing: Cell<u16>,
     chord: RefCell<Chord>,
     devices: RefCell<Vec<String>>,
@@ -253,6 +256,20 @@ unsafe extern "system" fn settings_proc(
             }
             return LRESULT(0);
         }
+        WM_COMMAND
+            if lp.0 != 0 && (on_dictionary_page(wp.0 as u16) || wp.0 as u16 == OPEN_DICTIONARY) =>
+        {
+            if let Err(error) = form.dictionary_command(wp.0 as u16, (wp.0 >> 16) as u32) {
+                form.set_text(DICTIONARY_STATUS, &error.to_string());
+            }
+            return LRESULT(0);
+        }
+        WM_TIMER if wp.0 == DICTIONARY_TIMER => {
+            if let Err(error) = form.poll_dictionary() {
+                form.set_text(DICTIONARY_STATUS, &error.to_string());
+            }
+            return LRESULT(0);
+        }
         WM_COMMAND if lp.0 != 0 => {
             if let Err(error) = form.command(wp.0 as u16, (wp.0 >> 16) as u32) {
                 let _ = form.refresh();
@@ -343,14 +360,37 @@ pub(super) fn attach(window: &Window) -> tauri::Result<()> {
                 w!("COMBOBOX"),
                 WS_TABSTOP | WS_VSCROLL | WINDOW_STYLE(CBS_DROPDOWNLIST as u32),
             ),
+            Kind::Edit => (
+                w!("EDIT"),
+                WS_TABSTOP | WS_BORDER | WINDOW_STYLE(ES_AUTOHSCROLL as u32),
+            ),
+            Kind::Multiline => (
+                w!("EDIT"),
+                WS_TABSTOP
+                    | WS_BORDER
+                    | WS_VSCROLL
+                    | WINDOW_STYLE((ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN) as u32),
+            ),
+            Kind::List => (
+                w!("LISTBOX"),
+                WS_TABSTOP
+                    | WS_BORDER
+                    | WS_VSCROLL
+                    | WINDOW_STYLE((LBS_NOTIFY | LBS_NOINTEGRALHEIGHT) as u32),
+            ),
             Kind::Meter => (w!("msctls_progress32"), WINDOW_STYLE(0)),
+        };
+        let visibility = if on_dictionary_page(field.id) {
+            WINDOW_STYLE::default()
+        } else {
+            WS_VISIBLE
         };
         let child = unsafe {
             CreateWindowExW(
                 WINDOW_EX_STYLE::default(),
                 class,
                 &HSTRING::from(field.text),
-                WS_CHILD | WS_VISIBLE | style,
+                WS_CHILD | visibility | style,
                 0,
                 0,
                 0,
@@ -376,6 +416,7 @@ pub(super) fn attach(window: &Window) -> tauri::Result<()> {
         dpi: Cell::default(),
         in_layout: Cell::default(),
         fonts: RefCell::default(),
+        dictionary: dictionary::Page::default(),
         capturing: Cell::default(),
         chord: RefCell::default(),
         devices: RefCell::default(),

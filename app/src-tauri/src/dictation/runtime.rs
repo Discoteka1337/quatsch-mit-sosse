@@ -1,4 +1,4 @@
-use super::{Phase, Ports, Session};
+use super::{Phase, Ports, Session, Transcript, with_warning};
 use crate::{
     OverlayState, current_settings,
     effects::Effects,
@@ -8,6 +8,7 @@ use crate::{
 };
 use quatsch_mit_sosse_hotkey::RecordingTicket;
 use quatsch_mit_sosse_models::Manager as ModelManager;
+use quatsch_mit_sosse_store::Store;
 use std::{
     io,
     sync::{
@@ -30,7 +31,7 @@ enum Command {
     Input(Action),
     Level(u8),
     AudioFault(MicrophoneFault),
-    Recognized(Result<String, String>),
+    Recognized(Result<Transcript, String>),
     Inserted(Result<(), String>),
     RemoveModel(String, ModelResult),
     ModelRemoved,
@@ -52,28 +53,6 @@ struct Desktop {
     mixer_warning: Option<String>,
     jobs: Sender<Job>,
     level_pending: Arc<AtomicBool>,
-}
-
-pub(super) fn with_mixer_warning(
-    state: OverlayState,
-    warning: &mut Option<String>,
-) -> OverlayState {
-    if !matches!(state, OverlayState::Ready | OverlayState::Error { .. }) {
-        return state;
-    }
-    let Some(warning) = warning.take() else {
-        return state;
-    };
-    match state {
-        OverlayState::Error { message, text } => OverlayState::Error {
-            message: format!("{message} {warning}"),
-            text,
-        },
-        _ => OverlayState::Error {
-            message: warning,
-            text: String::new(),
-        },
-    }
 }
 
 impl Ports for Desktop {
@@ -117,7 +96,7 @@ impl Ports for Desktop {
             .map_err(|_| messages().worker_error.clone())
     }
     fn show(&mut self, state: OverlayState) {
-        let state = with_mixer_warning(state, &mut self.mixer_warning);
+        let state = with_warning(state, &mut self.mixer_warning, "");
         let listening = matches!(state, OverlayState::Listening { .. });
         if listening && self.level_pending.swap(true, Ordering::AcqRel) {
             return;
@@ -177,9 +156,14 @@ impl Controller {
                     }
                     let reply = match job {
                         Job::Recognize(model, samples) => {
-                            Command::Recognized(recognizer.transcribe(model, &samples, |message| {
-                                let _ = replies.send(Command::Error(message));
-                            }))
+                            let transcript = recognizer
+                                .transcribe(model, &samples, |message| {
+                                    let _ = replies.send(Command::Error(message));
+                                })
+                                .map(|(model, text)| {
+                                    Transcript::with_dictionary(model, text, Store::open_default)
+                                });
+                            Command::Recognized(transcript)
                         }
                         Job::Insert(target, text) => {
                             Command::Inserted(target.insert(&text).map_err(|e| e.to_string()))

@@ -25,3 +25,15 @@
 - **Overlay.** **Bereit-Punkt anzeigen** macht das Overlay auch zwischen den Diktaten sichtbar. Mit **In Bildschirmaufnahmen verbergen** bittest du Windows, das Overlay bei unterstützten Aufnahmeverfahren auszublenden. Zum Verschieben ziehst du den Punkt oder die Diktatleiste.
 
 Die App speichert deine Auswahl unter `%LOCALAPPDATA%\QuatschMitSosse\data\settings.json`. Beim nächsten Start gelten die zuletzt gespeicherten Einstellungen.
+
+## Wörterbuch
+
+Öffne im Tray **Einstellungen** und dann **Wörterbuch**. Unter **Begriff** steht die gewünschte Schreibweise, etwa „Codex“. Trage unter **Gesprochene Varianten** je Zeile eine Form ein, die der Erkenner liefert, etwa „kodex“. Das Feld **Ersetzung (optional)** ist für eine abweichende Ausgabe gedacht. Trägst du beim Begriff „Büro Nord“ die Ersetzung „Projektbüro Nord“ ein, erscheint im Diktat „Projektbüro Nord“.
+
+Über **Neuer Eintrag** und **Hinzufügen** legst du einen Begriff an. Zum Bearbeiten suchst du nach dem Begriff oder einer Variante, wählst den Treffer aus und klickst auf **Änderungen speichern**. Gespeicherte Änderungen gelten beim nächsten Diktat. **Löschen** entfernt den ausgewählten Eintrag nach Bestätigung.
+
+Die längste passende Variante gewinnt. Ist dieselbe gesprochene Variante bei zwei verschiedenen Schreibweisen hinterlegt, behält das Wörterbuch an dieser Stelle den erkannten Text bei.
+
+**CSV exportieren …** schreibt das gesamte Wörterbuch als UTF-8-Datei. Du kannst diese Datei über **CSV importieren …** wieder einlesen. Für eine eigene Liste genügt eine Spalte mit der Überschrift `term`. Der vollständige Export enthält die Spalten `term,replacement,aliases,source,created_at`. Varianten stehen als JSON-Liste in einem CSV-Feld, der Erstellungszeitpunkt in Unix-Sekunden. Ein vorhandener Begriff wird beim Import aktualisiert. Enthält die Datei einen ungültigen Datensatz, verwirft die App den gesamten Import.
+
+Die lokale Datenbank liegt unter `%LOCALAPPDATA%\QuatschMitSosse\data\quatsch-mit-sosse.db`. Vor jeder Änderung der Datenbankstruktur legt die App im Unterordner `backups` eine Sicherung des bisherigen Stands an.

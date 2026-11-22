@@ -1,6 +1,7 @@
 mod commands;
 mod corrections;
 mod dictionary;
+mod dictionary_entries;
 mod fillers;
 mod german_spelling;
 mod numbers;
@@ -8,6 +9,7 @@ mod punctuation;
 mod tokens;
 
 pub use dictionary::software_dictation_pipeline;
+pub use dictionary_entries::DictionaryEntry;
 use std::ops::Range;
 use tokens::Kind;
 
@@ -71,6 +73,10 @@ pub struct Pipeline {
     pub digits_from: u32,
     /// Dictionary terms whose original spelling and internal punctuation are preserved.
     pub proper_names: Vec<String>,
+    /// Canonical spellings, optional written replacements and spoken variants.
+    pub dictionary: Vec<DictionaryEntry>,
+    /// Restore observed primeLine spellings of ß in unprotected words.
+    pub primeline_spelling: bool,
 }
 
 impl Default for Pipeline {
@@ -87,6 +93,8 @@ impl Pipeline {
             filler_strength: FillerStrength::Standard,
             digits_from: 13,
             proper_names: Vec::new(),
+            dictionary: Vec::new(),
+            primeline_spelling: false,
         };
         for rule in rules {
             pipeline.set_enabled(rule, true);
@@ -107,18 +115,28 @@ impl Pipeline {
     }
 
     pub fn apply_with_review(&self, input: &str) -> CleanupResult {
-        if !self.enabled.contains(&true) {
+        if !self.enabled.contains(&true) && !self.primeline_spelling {
             return CleanupResult {
                 text: input.to_owned(),
                 uncertain: Vec::new(),
             };
         }
-        let mut tokens = tokens::tokenize(input, &self.proper_names);
+        let replace = self.is_enabled(Rule::Dictionary);
+        let mut tokens = if !replace || self.is_enabled(Rule::VoiceCommands) {
+            tokens::tokenize_with_terms(input, &self.proper_names, &self.dictionary, replace)
+        } else {
+            tokens::tokenize(input, &self.proper_names)
+        };
         for rule in Rule::ORDER {
             if self.is_enabled(rule) {
                 match rule {
                     Rule::VoiceCommands => commands::apply(&mut tokens),
                     Rule::Dictionary => {
+                        dictionary_entries::apply(
+                            &mut tokens,
+                            &self.dictionary,
+                            &self.proper_names,
+                        );
                         dictionary::apply(&mut tokens, &self.proper_names);
                         german_spelling::apply(&mut tokens);
                     }
@@ -134,6 +152,9 @@ impl Pipeline {
                     Rule::Snippets | Rule::Style => {}
                 }
             }
+        }
+        if self.primeline_spelling {
+            german_spelling::apply_primeline(&mut tokens);
         }
         let mut text = String::with_capacity(input.len());
         let mut uncertain = Vec::new();

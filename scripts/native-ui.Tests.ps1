@@ -56,6 +56,12 @@ public static class QmsNativeWindows {
             throw new InvalidOperationException("Der Text des Steuerelements ist nicht lesbar.");
         return text.ToString();
     }
+    public static void SetControlText(IntPtr parent, int id, string value) {
+        UIntPtr result;
+        var control = GetDlgItem(parent, id);
+        if (control == IntPtr.Zero || SendMessageTimeout(control, 0x000C, IntPtr.Zero, new StringBuilder(value), 2, 1000, out result) == IntPtr.Zero || result == UIntPtr.Zero)
+            throw new InvalidOperationException("Das Eingabefeld ist nicht beschreibbar.");
+    }
     public static uint SelectedValue(IntPtr parent, int id, uint message) {
         UIntPtr value;
         var control = GetDlgItem(parent, id);
@@ -207,6 +213,54 @@ function Start-NativeSession {
     } 'Die App muss QMS_READY melden.'
 }
 
+function Test-DictionaryPage {
+    param([IntPtr]$Window)
+    function Press([int]$Id) {
+        $control = [QmsNativeWindows]::GetDlgItem($Window, $Id)
+        if (-not [QmsNativeWindows]::NotifyClick($Window, $Id, $control)) { throw 'Wörterbuch-Schaltfläche fehlt.' }
+    }
+    function Select-FirstTerm {
+        $list = [QmsNativeWindows]::GetDlgItem($Window, 304)
+        $null = [QmsNativeWindows]::PostMessage($list, 0x0186, [IntPtr]::Zero, [IntPtr]::Zero)
+        $null = [QmsNativeWindows]::PostMessage($Window, 0x0111, [IntPtr](0x10000 + 304), $list)
+    }
+    Press 116
+    Wait-NativeCondition { [QmsNativeWindows]::SelectedValue($Window, 304, 0x018B) -eq 10 } 'Das Wörterbuch muss die zehn Startbegriffe anzeigen.'
+    $dictionaryPath = Join-Path -Path "$testData" -ChildPath 'QuatschMitSosse\data\quatsch-mit-sosse.db'
+    if (-not (Test-Path -LiteralPath "$dictionaryPath" -PathType Leaf)) {
+        throw 'Die Wörterbuchdatenbank muss im Datenordner des isolierten Benutzerprofils liegen.'
+    }
+    [QmsNativeWindows]::SetControlText($Window, 303, 'kodex')
+    Wait-NativeCondition { [QmsNativeWindows]::SelectedValue($Window, 304, 0x018B) -eq 1 } 'Die Alias-Suche muss Codex finden.'
+    Select-FirstTerm
+    Wait-NativeCondition { [QmsNativeWindows]::ControlText($Window, 305) -ceq 'Codex' } 'Die Liste muss den richtigen Eintrag zum Bearbeiten öffnen.'
+    Press 309
+    [QmsNativeWindows]::SetControlText($Window, 305, 'Prüfbegriff')
+    [QmsNativeWindows]::SetControlText($Window, 307, 'gesprochener Test')
+    Press 308
+    Wait-NativeCondition { [QmsNativeWindows]::SelectedValue($Window, 304, 0x018B) -eq 11 } 'Der neue Begriff muss in der Liste erscheinen.'
+    $replacement = "Geprüft`r`nZweite Zeile"
+    [QmsNativeWindows]::SetControlText($Window, 306, $replacement)
+    Press 308
+    Wait-NativeCondition { [QmsNativeWindows]::ControlText($Window, 313) -ceq $locale.dictionarySaved } 'Die Bearbeitung muss gespeichert werden.'
+    Press 302
+    Press 116
+    [QmsNativeWindows]::SetControlText($Window, 303, 'gesprochener Test')
+    Wait-NativeCondition { [QmsNativeWindows]::SelectedValue($Window, 304, 0x018B) -eq 1 } 'Der gespeicherte Alias muss nach erneutem Öffnen auffindbar sein.'
+    Select-FirstTerm
+    Wait-NativeCondition { [QmsNativeWindows]::ControlText($Window, 306) -ceq $replacement } 'Die mehrzeilige Ersetzung muss erhalten bleiben.'
+    $delete = [QmsNativeWindows]::GetDlgItem($Window, 310)
+    $null = [QmsNativeWindows]::PostMessage($Window, 0x0111, [IntPtr]310, $delete)
+    Wait-NativeCondition {
+        @([QmsNativeWindows]::AppWindows($script:nativeProcess.Id, $locale.dictionaryTitle)).Count -eq 1
+    } 'Das Löschen muss nachgefragt werden.'
+    $dialog = @([QmsNativeWindows]::AppWindows($script:nativeProcess.Id, $locale.dictionaryTitle))[0]
+    $yes = [QmsNativeWindows]::GetDlgItem($dialog, 6)
+    $null = [QmsNativeWindows]::PostMessage($dialog, 0x0111, [IntPtr]6, $yes)
+    Wait-NativeCondition { [QmsNativeWindows]::SelectedValue($Window, 304, 0x018B) -eq 0 } 'Der gelöschte Begriff muss aus der Trefferliste verschwinden.'
+    Press 302
+}
+
 $runId = [guid]::NewGuid().ToString('N')
 $testData = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath "qms-overlay-$runId"
 $logPath = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath "qms-native-$runId.log"
@@ -244,6 +298,7 @@ try {
         $privacy = [QmsNativeWindows]::FindWindowEx($visible, [IntPtr]::Zero, 'Button', $locale.overlayHideFromCapture)
         if ($ready -eq [IntPtr]::Zero -or $privacy -eq [IntPtr]::Zero) { throw 'Die Overlay-Optionen fehlen.' }
         if ($cycle -eq 0) {
+            Test-DictionaryPage $visible
             $tones = [QmsNativeWindows]::FindWindowEx($visible, [IntPtr]::Zero, 'Button', $locale.generalTones)
             if ($tones -eq [IntPtr]::Zero) { throw 'Der Schalter für die Diktattöne fehlt.' }
             $settingsFile = Join-Path -Path "$testData" -ChildPath 'QuatschMitSosse\data\settings.json'

@@ -335,7 +335,7 @@ impl Form {
         Ok(())
     }
 
-    fn confirm(&self, prompt: &str, title: &str) -> bool {
+    pub(super) fn confirm(&self, prompt: &str, title: &str) -> bool {
         unsafe {
             MessageBoxW(
                 Some(self.hwnd),
