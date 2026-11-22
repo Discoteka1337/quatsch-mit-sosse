@@ -378,3 +378,27 @@ name = "Satzpunkt hinter einer Zahl wird nicht verdoppelt"
 input = "Das sind 17. Punkt."
 rules = ["voice_commands"]
 expected = "Das sind 17."
+
+[[case]]
+name = "Satzende hinter eingeklammertem Fragezeichen"
+input = "Wir brauchen drei Wochen (wirklich Fragezeichen). Danach starten wir."
+rules = ["voice_commands"]
+expected = "Wir brauchen drei Wochen (wirklich?). Danach starten wir."
+
+[[case]]
+name = "Direkte Rede vor nachgestelltem Begleitsatz"
+input = "„Komm mit Ausrufezeichen!“, rief sie."
+rules = ["voice_commands"]
+expected = "„Komm mit!“, rief sie."
+
+[[case]]
+name = "Zitiertes Wort vor gewöhnlichem Komma"
+input = "Das Wort „Punkt“, sagte sie, fehlt hier."
+rules = ["voice_commands"]
+expected = "Das Wort „Punkt“, sagte sie, fehlt hier."
+
+[[case]]
+name = "Punkt nach Anführungszeichen innerhalb einer Adresse"
+input = "Die Adresse „Punkt“.de ist ein Beispiel."
+rules = ["voice_commands"]
+expected = "Die Adresse „Punkt“.de ist ein Beispiel."

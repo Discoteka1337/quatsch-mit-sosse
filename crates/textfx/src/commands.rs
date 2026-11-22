@@ -109,6 +109,10 @@ fn command(word: &str, rest: &[Token]) -> Option<(&'static str, usize)> {
     Some((mark, 0))
 }
 
+fn is_sentence_mark(token: &Token) -> bool {
+    token.kind == Kind::Punctuation && matches!(token.text.as_str(), "." | "!" | "?" | "…")
+}
+
 // Return the number of tokens occupied by recognizer punctuation, if present.
 // Closing quotes and brackets are context and stay in the original text.
 fn sentence_end(rest: &[Token]) -> Option<usize> {
@@ -116,9 +120,7 @@ fn sentence_end(rest: &[Token]) -> Option<usize> {
     let rest = &rest[space..];
     let marks = rest
         .iter()
-        .take_while(|token| {
-            token.kind == Kind::Punctuation && matches!(token.text.as_str(), "." | "!" | "?" | "…")
-        })
+        .take_while(|token| is_sentence_mark(token))
         .count();
     let mut end = marks;
     if end == 0
@@ -138,12 +140,31 @@ fn sentence_end(rest: &[Token]) -> Option<usize> {
                 )
         })
         .count();
-    let after = &rest[end + closing..];
+    let mut after = &rest[end + closing..];
+    let mut terminal = marks > 0;
+    if closing > 0 {
+        // Punctuation outside a quote or bracket belongs to the surrounding sentence.
+        let outer_marks = after
+            .iter()
+            .take_while(|token| is_sentence_mark(token))
+            .count();
+        if outer_marks > 0 {
+            terminal = true;
+            after = &after[outer_marks..];
+        } else if terminal
+            && after
+                .first()
+                .is_some_and(|token| token.kind == Kind::Punctuation && token.text == ",")
+        {
+            // A reporting clause may follow quoted speech: „Komm!“, rief sie.
+            after = &after[1..];
+        }
+    }
     let at_line_end = after
         .iter()
         .find(|token| token.kind != Kind::Space)
         .is_none_or(|token| token.kind == Kind::LineBreak);
-    if at_line_end || (marks > 0 && after.first().is_some_and(|token| token.kind == Kind::Space)) {
+    if at_line_end || (terminal && after.first().is_some_and(|token| token.kind == Kind::Space)) {
         Some(if end == 0 { 0 } else { space + end })
     } else {
         None

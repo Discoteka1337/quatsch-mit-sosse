@@ -52,3 +52,10 @@ name = "Das Komma einer Zahlenaufzählung bleibt erhalten"
 input = "Heute kommen 3, ähm, 5 und 7 Gäste."
 rules = ["filler_words"]
 expected = "Heute kommen 3, 5 und 7 Gäste."
+
+[[case]]
+name = "Alle Regeln zusammen in direkter Rede mit Name und Uhrzeit"
+input = "„Ist Frau Punkt, ähm, um 07:05 da Fragezeichen?“, fragt Lia."
+rules = ["style", "snippets", "punctuation", "numbers", "self_corrections", "filler_words", "dictionary", "voice_commands"]
+proper_names = ["Frau Punkt"]
+expected = "„Ist Frau Punkt um 07:05 da?“, fragt Lia."

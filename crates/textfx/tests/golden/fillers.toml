@@ -359,3 +359,39 @@ name = "kein-komma-nach-zweitem-einschub"
 input = "Wenn es, äh, heute regnet, ähm, bleiben wir daheim."
 rules = ["filler_words"]
 expected = "Wenn es heute regnet, bleiben wir daheim."
+
+[[case]]
+name = "satzkomma-nach-zitat"
+input = "Sie sagt „ja“, ähm, aber zögert."
+rules = ["filler_words"]
+expected = "Sie sagt „ja“, aber zögert."
+
+[[case]]
+name = "satzkomma-nach-klammer"
+input = "Ich hoffe (wirklich), hm, dass es klappt."
+rules = ["filler_words"]
+expected = "Ich hoffe (wirklich), dass es klappt."
+
+[[case]]
+name = "kein-komma-nach-satzende"
+input = "Das klappt. Äh, aber erst morgen."
+rules = ["filler_words"]
+expected = "Das klappt. aber erst morgen."
+
+[[case]]
+name = "nebensatz-vor-hauptsatz-mit-sie"
+input = "Wenn es regnet, ähm, bleibt sie daheim."
+rules = ["filler_words"]
+expected = "Wenn es regnet, bleibt sie daheim."
+
+[[case]]
+name = "nebensatz-vor-hauptsatz-mit-ihr"
+input = "Wenn es regnet, ähm, bleibt ihr daheim."
+rules = ["filler_words"]
+expected = "Wenn es regnet, bleibt ihr daheim."
+
+[[case]]
+name = "aufzählung-von-exponentialzahlen"
+input = "Die Werte sind 1e-3, ähm, 2E+3 und 3e-3."
+rules = ["filler_words"]
+expected = "Die Werte sind 1e-3, 2E+3 und 3e-3."

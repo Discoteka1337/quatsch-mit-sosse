@@ -127,14 +127,26 @@ fn mark_numbers(tokens: &[Token], protected: &mut [bool]) {
         }
         let previous = &tokens[index - 1];
         let before_separator = tokens[..index - 1].last();
-        let sign = matches!(previous.text.as_str(), "+" | "-" | "−")
-            && before_separator.is_none_or(|left| left.kind != Kind::Word || starts_exponent(left));
         let internal_separator = before_separator
             .is_some_and(|left| left.text.ends_with(char::is_numeric))
             && is_number_separator(previous, token);
-        if sign || internal_separator {
-            protected[index - 1] = true;
+        // A decimal fraction may omit its leading zero. Its separator must
+        // touch the digits, unlike a pause comma followed by whitespace.
+        let leading_decimal = matches!(previous.text.as_str(), "," | "." | "٫")
+            && before_separator.is_none_or(|left| left.kind != Kind::Word);
+        let mut start = index;
+        if internal_separator || leading_decimal {
+            start -= 1;
         }
+        if let Some((sign, before)) = tokens[..start].split_last()
+            && matches!(sign.text.as_str(), "+" | "-" | "−")
+            && before
+                .last()
+                .is_none_or(|left| left.kind != Kind::Word || starts_exponent(left))
+        {
+            start -= 1;
+        }
+        protected[start..index].fill(true);
     }
 }
 
@@ -172,6 +184,11 @@ mod tests {
     fn numeric_forms_are_indivisible_for_all_rules() {
         for number in [
             "002",
+            ",05",
+            ".025",
+            "−,050",
+            "+.25E-03",
+            "٫٥",
             "−005,004",
             "+49",
             "1.022.005,30",

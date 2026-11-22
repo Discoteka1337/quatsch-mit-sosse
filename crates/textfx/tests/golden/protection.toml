@@ -180,3 +180,27 @@ input = "Quasi-12 und Äh-17"
 rules = ["voice_commands", "filler_words"]
 strength = "strong"
 expected = "Quasi-12 und Äh-17"
+
+[[case]]
+name = "Führendes Dezimalkomma nach einem Füllwort behält den Zahlenwert"
+input = "Der Anteil beträgt ähm ,25 Prozent."
+rules = ["filler_words"]
+expected = "Der Anteil beträgt ,25 Prozent."
+
+[[case]]
+name = "Zwischen Pausenkomma und Dezimalkomma zählt der Abstand zur Ziffer"
+input = "ähm, ,5 Punkt"
+rules = ["voice_commands", "filler_words"]
+expected = ",5."
+
+[[case]]
+name = "Pausenkomma mit folgendem Leerzeichen gehört zum Füllwort"
+input = "Der Anteil beträgt ähm, 25 Prozent."
+rules = ["filler_words"]
+expected = "Der Anteil beträgt 25 Prozent."
+
+[[case]]
+name = "Das Komma einer verkürzten Dezimalzahl bleibt nach einer Klammer erhalten"
+input = "Das Ergebnis (ähm ,07) zählt."
+rules = ["filler_words"]
+expected = "Das Ergebnis (,07) zählt."

@@ -67,7 +67,9 @@ fn remove_run(tokens: &mut [Token], start: usize, end: usize) {
         && !left.is_some_and(is_opening_delimiter)
         && !right.is_some_and(attaches_to_left);
     let keep_comma = add_space
-        && left.is_some_and(|token| matches!(token.kind, Kind::Word | Kind::Protected))
+        && left.is_some_and(|token| {
+            matches!(token.kind, Kind::Word | Kind::Protected) || is_closing_delimiter(&token.text)
+        })
         && tokens[start..end].iter().any(is_comma)
         && (right.is_some_and(introduces_clause)
             || (left.is_some_and(is_number) && right.is_some_and(is_number))
@@ -94,16 +96,27 @@ fn is_opening_delimiter(token: &Token) -> bool {
 
 fn attaches_to_left(token: &Token) -> bool {
     matches!(token.kind, Kind::Punctuation | Kind::CommandPunctuation)
-        && matches!(
-            token.text.as_str(),
-            "," | "." | "!" | "?" | ":" | ";" | "…" | ")" | "]" | "}" | "“" | "‘" | "«" | "‹"
-        )
+        && (matches!(token.text.as_str(), "," | "." | "!" | "?" | ":" | ";" | "…")
+            || is_closing_delimiter(&token.text))
+}
+
+fn is_closing_delimiter(text: &str) -> bool {
+    matches!(text, ")" | "]" | "}" | "“" | "‘" | "«" | "‹")
 }
 
 fn is_number(token: &Token) -> bool {
-    token.kind == Kind::Protected
-        && token.text.chars().any(char::is_numeric)
-        && !token.text.chars().any(char::is_alphabetic)
+    if token.kind != Kind::Protected {
+        return false;
+    }
+    let mut mantissa = token.text.as_str();
+    if let Some((base, exponent)) = mantissa.split_once(['e', 'E']) {
+        let digits = exponent.strip_prefix(['+', '-', '−']).unwrap_or(exponent);
+        if digits.is_empty() || !digits.chars().all(char::is_numeric) {
+            return false;
+        }
+        mantissa = base;
+    }
+    mantissa.chars().any(char::is_numeric) && !mantissa.chars().any(char::is_alphabetic)
 }
 
 fn ends_subordinate_clause(left: &[Token], right: &[Token]) -> bool {
@@ -145,11 +158,23 @@ fn verb_agrees_with_pronoun(verb: &Token, subject: &Token) -> bool {
         return false;
     }
     let verb = word_key(&verb.text);
+    let plural = verb.ends_with("en") || verb == "sind";
+    let third_singular = verb.ends_with('t') || verb == "wird";
     match word_key(&subject.text).as_str() {
-        "wir" => verb.ends_with("en") || verb == "sind",
+        "wir" => plural,
         "ich" => verb.ends_with('e') || verb == "bin",
         "du" => verb.ends_with("st"),
-        "er" | "es" => verb.ends_with('t') || verb == "wird",
+        "er" | "es" => third_singular,
+        "sie" => third_singular || plural,
+        // "ihr" can also be the dative object of a preposition ending in -t.
+        "ihr" => {
+            verb == "seid"
+                || (verb.ends_with('t')
+                    && !matches!(
+                        verb.as_str(),
+                        "mit" | "seit" | "samt" | "mitsamt" | "nebst" | "laut"
+                    ))
+        }
         _ => false,
     }
 }
