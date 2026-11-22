@@ -1,0 +1,243 @@
+[[case]]
+name = "Satz ohne Erkennerzeichen"
+input = "wir kommen morgen"
+rules = ["punctuation"]
+expected = "Wir kommen morgen."
+
+[[case]]
+name = "Zwei bestehende Satzgrenzen"
+input = "es regnet. wir warten! dann gehen wir"
+rules = ["punctuation"]
+expected = "Es regnet. Wir warten! Dann gehen wir."
+
+[[case]]
+name = "Kein geratenes Komma vor dass"
+input = "ich sehe dass du fertig bist"
+rules = ["punctuation"]
+expected = "Ich sehe dass du fertig bist."
+
+[[case]]
+name = "Komma im Satz bleibt erhalten"
+input = "wenn es passt, komme ich"
+rules = ["punctuation"]
+expected = "Wenn es passt, komme ich."
+
+[[case]]
+name = "Fragezeichen bleibt allein"
+input = "wann kommt ihr?"
+rules = ["punctuation"]
+expected = "Wann kommt ihr?"
+
+[[case]]
+name = "Drei Punkte kennzeichnen den Abbruch"
+input = "vielleicht ... morgen"
+rules = ["punctuation"]
+expected = "Vielleicht ... morgen."
+
+[[case]]
+name = "Einzelnes Auslassungszeichen bleibt"
+input = "vielleicht…"
+rules = ["punctuation"]
+expected = "Vielleicht…"
+
+[[case]]
+name = "Anrede mit offenem Ende"
+input = "liebe Anna,"
+rules = ["punctuation"]
+expected = "Liebe Anna,"
+
+[[case]]
+name = "Doppelpunkt aus Sprachbefehl"
+input = "folgendes Doppelpunkt"
+rules = ["voice_commands","punctuation"]
+expected = "Folgendes:"
+
+[[case]]
+name = "Abstände und Zeilenenden erhalten"
+input = " \thallo Welt \r\n"
+rules = ["punctuation"]
+expected = " \tHallo Welt. \r\n"
+
+[[case]]
+name = "Umbruch mitten im Satz"
+input = "wir fahren nach\nberlin"
+rules = ["punctuation"]
+expected = "Wir fahren nach\nberlin."
+
+[[case]]
+name = "Neuer Absatz ohne erfundenen Satzschluss mitten im Text"
+input = "erster Absatz\n\nzweiter Absatz"
+rules = ["punctuation"]
+expected = "Erster Absatz\n\nZweiter Absatz."
+
+[[case]]
+name = "Wörterbuchname am Anfang"
+input = "eBay ist offen"
+rules = ["punctuation"]
+proper_names = ["eBay"]
+expected = "eBay ist offen."
+
+[[case]]
+name = "Geschützte Zahl am Anfang"
+input = "007 bleibt bestehen"
+rules = ["punctuation"]
+expected = "007 bleibt bestehen."
+
+[[case]]
+name = "Leeres Transkript bleibt leer"
+input = ""
+rules = ["punctuation"]
+expected = ""
+
+[[case]]
+name = "Nur Zwischenraum bleibt bytegetreu"
+input = " \r\n\t"
+rules = ["punctuation"]
+expected = " \r\n\t"
+
+[[case]]
+name = "Kein Wort zwischen den Satzzeichen"
+input = "..."
+rules = ["punctuation"]
+expected = "..."
+
+[[case]]
+name = "Deutscher Umlaut am Satzanfang"
+input = "übermorgen beginnt die Messe"
+rules = ["punctuation"]
+expected = "Übermorgen beginnt die Messe."
+
+[[case]]
+name = "Abkürzung in einem Satz"
+input = "wir lesen z. B. gerne"
+rules = ["punctuation"]
+expected = "Wir lesen z. B. gerne."
+
+[[case]]
+name = "Ordinalpunkt begründet keinen Satzanfang"
+input = "am 3. fahren wir ab"
+rules = ["punctuation"]
+expected = "Am 3. fahren wir ab."
+
+[[case]]
+name = "Punkte im Domainnamen"
+input = "wir nutzen example.org heute"
+rules = ["punctuation"]
+expected = "Wir nutzen example.org heute."
+
+[[case]]
+name = "Titel mit Punkt"
+input = "wir sehen Dr. phil. Meier"
+rules = ["punctuation"]
+expected = "Wir sehen Dr. phil. Meier."
+
+[[case]]
+name = "Zitierter Satz"
+input = "„komm bitte“"
+rules = ["punctuation"]
+expected = "„Komm bitte.“"
+
+[[case]]
+name = "Frage in direkter Rede"
+input = "„kommst du?“, fragt sie"
+rules = ["punctuation"]
+expected = "„Kommst du?“, fragt sie."
+
+[[case]]
+name = "Abgeschlossener Satz in Anführungszeichen"
+input = "„komm bald!“"
+rules = ["punctuation"]
+expected = "„Komm bald!“"
+
+[[case]]
+name = "Klammer am Ende"
+input = "wir kommen (morgen)"
+rules = ["punctuation"]
+expected = "Wir kommen (morgen)."
+
+[[case]]
+name = "Sprachbefehl bleibt vorrangig"
+input = "alles klar Ausrufezeichen"
+rules = ["voice_commands","punctuation"]
+expected = "Alles klar!"
+
+[[case]]
+name = "Formatierung nach Euro und Prozent"
+input = "wir zahlen zwölf Euro neunundneunzig"
+rules = ["numbers","punctuation"]
+expected = "Wir zahlen 12,99 €."
+
+[[case]]
+name = "Schutz und Datum mit Zahlregel"
+input = "am dritten März kommt iTeam"
+rules = ["numbers","punctuation"]
+proper_names = ["iTeam"]
+expected = "Am 3. März kommt iTeam."
+
+[[case]]
+name = "Ein Buchstabe mit Punkt im Nachnamen"
+input = "L. van Beethoven kommt"
+rules = ["punctuation"]
+expected = "L. van Beethoven kommt."
+
+[[case]]
+name = "Binnenmajuskel eines Produkts"
+input = "iPhone startet"
+rules = ["punctuation"]
+expected = "iPhone startet."
+
+[[case]]
+name = "E-Mail-Adresse am Anfang"
+input = "hilfe@example.org antwortet morgen"
+rules = ["punctuation"]
+expected = "hilfe@example.org antwortet morgen."
+
+[[case]]
+name = "Begleitsatz nach Zitat und Fragezeichen"
+input = "sie fragt „warum?“ und geht"
+rules = ["punctuation"]
+expected = "Sie fragt „warum?“ und geht."
+
+[[case]]
+name = "Nach einem geschützten Namen beginnt ein neuer Satz"
+input = "wir sehen iTeam. dann gehen wir"
+rules = ["punctuation"]
+proper_names = ["iTeam"]
+expected = "Wir sehen iTeam. Dann gehen wir."
+
+[[case]]
+name = "Satz mit zwei zitierten Begriffen"
+input = "„ja“ bedeutet „einverstanden“"
+rules = ["punctuation"]
+expected = "„Ja“ bedeutet „einverstanden“."
+
+[[case]]
+name = "Punkt nach zweitem zitierten Satz"
+input = "„der Bus ist da.“ „wir gehen“"
+rules = ["punctuation"]
+expected = "„Der Bus ist da.“ „Wir gehen.“"
+
+[[case]]
+name = "Satzwechsel nach formatiertem Betrag"
+input = "das kostet zwölf Euro neunundneunzig. danach kommt die Steuer"
+rules = ["numbers", "punctuation"]
+expected = "Das kostet 12,99 €. Danach kommt die Steuer."
+
+[[case]]
+name = "Satzwechsel nach einem vorhandenen Prozentzeichen"
+input = "es fehlen 5 %. wir warten"
+rules = ["punctuation"]
+expected = "Es fehlen 5 %. Wir warten."
+
+[[case]]
+name = "Satzzeichen am Ende eines geschützten Eintrags"
+input = "das ist Schluss:"
+rules = ["punctuation"]
+proper_names = ["Schluss:"]
+expected = "Das ist Schluss:"
+
+[[case]]
+name = "Sachliche Binnenabkürzungen"
+input = "wir rechnen lt. ihrer Aussage gem. dieser Regel"
+rules = ["punctuation"]
+expected = "Wir rechnen lt. ihrer Aussage gem. dieser Regel."

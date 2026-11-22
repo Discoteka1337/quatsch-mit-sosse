@@ -1,6 +1,11 @@
-use crate::corpus::Recording;
+use crate::{
+    corpus::Recording,
+    metrics::{WordErrors, compare_words, word_errors},
+};
 use quatsch_mit_sosse_stt::SpeechEngine;
+use quatsch_mit_sosse_textfx::{Pipeline, software_dictation_pipeline};
 use serde::{Deserialize, Serialize};
+use std::time::Instant;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SampleMetrics {
@@ -33,6 +38,45 @@ pub struct ModelResult {
     pub peak_ram_bytes: u64,
     pub samples: Vec<SampleMetrics>,
     pub probes: Vec<Probe>,
+    pub cleanup: CleanupSummary,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CleanupSummary {
+    pub speech_errors: WordErrors,
+    pub improved: Vec<u16>,
+    pub worsened: Vec<u16>,
+    pub phantoms: usize,
+    pub speech_cleanup_seconds: f64,
+}
+
+impl CleanupSummary {
+    fn score(
+        &mut self,
+        pipeline: &Pipeline,
+        recording: &Recording,
+        raw: &str,
+        raw_errors: WordErrors,
+    ) {
+        let started = Instant::now();
+        let cleaned = pipeline.apply(raw);
+        let elapsed = started.elapsed().as_secs_f64();
+        if recording.reference.trim().is_empty() {
+            self.phantoms += usize::from(!cleaned.is_empty());
+            return;
+        }
+        self.speech_cleanup_seconds += elapsed;
+        let errors = word_errors(&recording.reference, &cleaned);
+        self.speech_errors.reference_words += errors.reference_words;
+        self.speech_errors.substitutions += errors.substitutions;
+        self.speech_errors.deletions += errors.deletions;
+        self.speech_errors.insertions += errors.insertions;
+        match errors.total().cmp(&raw_errors.total()) {
+            std::cmp::Ordering::Less => self.improved.push(recording.id),
+            std::cmp::Ordering::Greater => self.worsened.push(recording.id),
+            std::cmp::Ordering::Equal => {}
+        }
+    }
 }
 
 pub fn measure(
@@ -40,9 +84,6 @@ pub fn measure(
     recordings: &[Recording],
     engine: &mut dyn SpeechEngine,
 ) -> Result<ModelResult, &'static str> {
-    use crate::metrics::compare_words;
-    use std::time::Instant;
-
     let first = recordings
         .iter()
         .find(|recording| !recording.reference.trim().is_empty())
@@ -70,6 +111,8 @@ pub fn measure(
         warmup_succeeded = !transcript.text.trim().is_empty();
     }
     let mut samples = Vec::with_capacity(recordings.len());
+    let pipeline = software_dictation_pipeline();
+    let mut cleanup = CleanupSummary::default();
     for recording in recordings {
         let started = Instant::now();
         let transcript = engine
@@ -77,6 +120,7 @@ pub fn measure(
             .map_err(|_| "Die lokale Erkennung einer Korpusaufnahme ist fehlgeschlagen.")?;
         let latency_seconds = started.elapsed().as_secs_f64();
         let (errors, first_word_matches) = compare_words(&recording.reference, &transcript.text);
+        cleanup.score(&pipeline, recording, &transcript.text, errors);
         let silence = recording.reference.trim().is_empty();
         samples.push(SampleMetrics {
             id: recording.id,
@@ -122,6 +166,7 @@ pub fn measure(
         peak_ram_bytes: peak_ram_bytes()?,
         samples,
         probes,
+        cleanup,
     })
 }
 

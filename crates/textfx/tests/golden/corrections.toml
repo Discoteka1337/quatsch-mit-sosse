@@ -1,0 +1,384 @@
+[[case]]
+name = "Wochentag nach ausdrücklicher Korrektur"
+input = "Wir kommen am Montag, nein, ich meine Dienstag zum Essen."
+rules = ["self_corrections"]
+expected = "Wir kommen am Dienstag zum Essen."
+
+[[case]]
+name = "Wiederholte Präposition gehört zur Korrektur"
+input = "Wir fahren nach Berlin, nein, ich meine nach Bremen zum Markt."
+rules = ["self_corrections"]
+expected = "Wir fahren nach Bremen zum Markt."
+
+[[case]]
+name = "Vollständige Wortgruppe mit Artikel"
+input = "Sie nimmt den roten Stift, nein, ich meine den blauen Stift aus dem Etui."
+rules = ["self_corrections"]
+expected = "Sie nimmt den blauen Stift aus dem Etui."
+
+[[case]]
+name = "Einzelne Alternative mit Großschreibung"
+input = "Rot, NEIN, ICH MEINE blau!"
+rules = ["self_corrections"]
+expected = "blau!"
+
+[[case]]
+name = "Fehlende Erkennerkommas beim eindeutigen Signal"
+input = "Wir kommen Montag nein ich meine Dienstag."
+rules = ["self_corrections"]
+expected = "Wir kommen Dienstag."
+
+[[case]]
+name = "Korrektur mit zerlegtem Umlaut"
+input = "Wir wählen grün, nein, ich meine blau."
+rules = ["self_corrections"]
+expected = "Wir wählen blau."
+
+[[case]]
+name = "Zwei aufeinanderfolgende Verbesserungen"
+input = "Am Montag, nein, ich meine Dienstag, nein, ich meine Mittwoch."
+rules = ["self_corrections"]
+expected = "Am Mittwoch."
+
+[[case]]
+name = "Zwei unabhängige Korrekturen"
+input = "Am Montag, nein, ich meine Dienstag. Rot, nein, ich meine blau."
+rules = ["self_corrections"]
+expected = "Am Dienstag. blau."
+
+[[case]]
+name = "Wortgruppe bleibt samt benachbarten Abständen stehen"
+input = "Wir  fahren nach Berlin, nein, ich meine nach Hamburg  weiter."
+rules = ["self_corrections"]
+expected = "Wir  fahren nach Hamburg  weiter."
+
+[[case]]
+name = "Vollständiger Kontrast zwischen Wochentagen"
+input = "Wir kommen nicht Montag, sondern Dienstag zum Essen."
+rules = ["self_corrections"]
+expected = "Wir kommen Dienstag zum Essen."
+
+[[case]]
+name = "Parallele Zeitangaben mit Präposition"
+input = "Wir kommen nicht am Montag, sondern am Dienstag."
+rules = ["self_corrections"]
+expected = "Wir kommen am Dienstag."
+
+[[case]]
+name = "Kontrast aus zwei Zielorten"
+input = "Wir fahren nicht nach Berlin, sondern nach Bremen."
+rules = ["self_corrections"]
+expected = "Wir fahren nach Bremen."
+
+[[case]]
+name = "Nicht nur und sondern auch sind keine Korrektur"
+input = "Ich brauche nicht nur Papier, sondern auch Stifte."
+rules = ["self_corrections"]
+expected = "Ich brauche nicht nur Papier, sondern auch Stifte."
+
+[[case]]
+name = "Inhaltlicher Gegensatz bleibt zur Prüfung stehen"
+input = "Er lebt nicht um zu arbeiten, sondern um zu reisen."
+rules = ["self_corrections"]
+expected = "Er lebt nicht um zu arbeiten, sondern um zu reisen."
+uncertain = ["nicht um zu arbeiten, sondern um zu reisen"]
+
+[[case]]
+name = "Gegensatz zwischen vollständigen Aussagen"
+input = "Ich schlafe nicht, sondern ich arbeite."
+rules = ["self_corrections"]
+expected = "Ich schlafe nicht, sondern ich arbeite."
+uncertain = ["nicht, sondern ich arbeite"]
+
+[[case]]
+name = "Negation allein bleibt wörtlich"
+input = "Ich fahre nicht nach Berlin."
+rules = ["self_corrections"]
+expected = "Ich fahre nicht nach Berlin."
+
+[[case]]
+name = "Äh korrigiert parallele Wochentage"
+input = "Am Montag, äh, Dienstag bin ich da."
+rules = ["self_corrections"]
+expected = "Am Dienstag bin ich da."
+
+[[case]]
+name = "Äh korrigiert parallele Farben"
+input = "Das Licht ist rot, äh, grün."
+rules = ["self_corrections"]
+expected = "Das Licht ist grün."
+
+[[case]]
+name = "Äh mit parallelen Ortsangaben"
+input = "Wir fahren nach Köln, äh, nach Bonn."
+rules = ["self_corrections"]
+expected = "Wir fahren nach Bonn."
+
+[[case]]
+name = "Füllwortregel lässt den Korrekturmarker stehen"
+input = "Ähm, wir kommen Montag, äh, Dienstag."
+rules = ["self_corrections","filler_words"]
+expected = "wir kommen Dienstag."
+
+[[case]]
+name = "Ohne Korrekturregel arbeitet die Füllwortregel wie zuvor"
+input = "Wir kommen Montag, äh, Dienstag."
+rules = ["filler_words"]
+expected = "Wir kommen Montag Dienstag."
+
+[[case]]
+name = "Gewöhnliches Zögern ohne abzuleitende Korrektur"
+input = "Ich möchte äh nach Hause."
+rules = ["self_corrections","filler_words"]
+expected = "Ich möchte nach Hause."
+
+[[case]]
+name = "Ein Name vor dem Imperativ kann eine Anrede sein"
+input = "Anna, streich das."
+rules = ["self_corrections"]
+expected = "Anna, streich das."
+uncertain = ["Anna, streich das"]
+
+[[case]]
+name = "Eine neue Aussage bleibt außerhalb der Markierung"
+input = "Das ist laut, äh, schön und kostet drei Euro."
+rules = ["filler_words", "self_corrections", "numbers"]
+expected = "Das ist laut, äh, schön und kostet 3 €."
+uncertain = ["laut, äh, schön"]
+
+[[case]]
+name = "Ein unsicherer Einschub behält die Pausenkommas"
+input = "Das scheint seltsam, äh, schwierig."
+rules = ["self_corrections","filler_words"]
+expected = "Das scheint seltsam, äh, schwierig."
+uncertain = ["seltsam, äh, schwierig"]
+
+[[case]]
+name = "Ohne Füllwortregel bleibt ein gewöhnliches Äh"
+input = "Wir gehen äh heim."
+rules = ["self_corrections"]
+expected = "Wir gehen äh heim."
+
+[[case]]
+name = "Streich das widerruft nur die letzte Ortsangabe"
+input = "Wir warten heute in Bonn, streich das."
+rules = ["self_corrections"]
+expected = "Wir warten heute."
+
+[[case]]
+name = "Kommando zurück widerruft nur die Zeitangabe"
+input = "Wir kommen am Dienstag, Kommando zurück!"
+rules = ["self_corrections"]
+expected = "Wir kommen!"
+
+[[case]]
+name = "Kurzer Einzelwiderruf"
+input = "Montag, streich das"
+rules = ["self_corrections"]
+expected = ""
+
+[[case]]
+name = "Unpunktierter Widerruf mit klarer Wortgruppe"
+input = "Wir kommen am Freitag Kommando zurück."
+rules = ["self_corrections"]
+expected = "Wir kommen."
+
+[[case]]
+name = "Widerruf im Satz vor einer neuen Alternative"
+input = "Wir kommen am Montag, streich das, am Freitag vorbei."
+rules = ["self_corrections"]
+expected = "Wir kommen am Freitag vorbei."
+
+[[case]]
+name = "Keine Löschung über Absatzgrenzen"
+input = "Wir warten hier.\r\nKommando zurück."
+rules = ["self_corrections"]
+expected = "Wir warten hier.\r\nKommando zurück."
+uncertain = ["Kommando zurück"]
+
+[[case]]
+name = "Kein Ziel vor einem Widerruf"
+input = "Streich das!"
+rules = ["self_corrections"]
+expected = "Streich das!"
+uncertain = ["Streich das"]
+
+[[case]]
+name = "Normale Handlungsanweisung mit Objekt"
+input = "Bitte streich das Wort."
+rules = ["self_corrections"]
+expected = "Bitte streich das Wort."
+
+[[case]]
+name = "Kommando als Substantiv und Verbzusatz"
+input = "Nimm das Kommando zurück."
+rules = ["self_corrections"]
+expected = "Nimm das Kommando zurück."
+
+[[case]]
+name = "Unklares Ende eines Satzglieds"
+input = "Wir wollten weiter darüber nachdenken, streich das."
+rules = ["self_corrections"]
+expected = "Wir wollten weiter darüber nachdenken, streich das."
+uncertain = ["nachdenken, streich das"]
+
+[[case]]
+name = "Mehrdeutiger Ersatz mit Nebensatz"
+input = "Sie sagt laut, nein, ich meine dass wir gehen."
+rules = ["self_corrections"]
+expected = "Sie sagt laut, nein, ich meine dass wir gehen."
+uncertain = ["laut, nein, ich meine dass wir gehen"]
+
+[[case]]
+name = "Kein zweites Satzglied"
+input = "Wir fahren Montag, nein, ich meine."
+rules = ["self_corrections"]
+expected = "Wir fahren Montag, nein, ich meine."
+uncertain = ["Montag, nein, ich meine"]
+
+[[case]]
+name = "Eigenname im alten Satzglied bleibt geschützt"
+input = "Wir fahren nach Bad  Laut, nein, ich meine nach Köln."
+rules = ["self_corrections"]
+expected = "Wir fahren nach Bad  Laut, nein, ich meine nach Köln."
+uncertain = ["Bad  Laut, nein, ich meine nach Köln"]
+proper_names = ["Bad Laut"]
+
+[[case]]
+name = "Ziffern im alten Satzglied bleiben geschützt"
+input = "Wir brauchen 007, nein, ich meine acht."
+rules = ["self_corrections"]
+expected = "Wir brauchen 007, nein, ich meine acht."
+uncertain = ["007, nein, ich meine acht"]
+
+[[case]]
+name = "Markierte Zahlen überleben die spätere Zahlenregel"
+input = "Der Maler sagt dreizehn, äh, unsichtbar."
+rules = ["numbers","filler_words","self_corrections"]
+expected = "Der Maler sagt dreizehn, äh, unsichtbar."
+uncertain = ["dreizehn, äh, unsichtbar"]
+
+[[case]]
+name = "Wortteile sind keine Auslöser"
+input = "Die Streichdas-Liste und das Zurückkommando bleiben."
+rules = ["self_corrections"]
+expected = "Die Streichdas-Liste und das Zurückkommando bleiben."
+
+[[case]]
+name = "Wörtliches Zitat des Befehls"
+input = "Im Handbuch steht „Kommando zurück“."
+rules = ["self_corrections"]
+expected = "Im Handbuch steht „Kommando zurück“."
+
+[[case]]
+name = "Echte Satzkommas bleiben erhalten"
+input = "Wenn sie kommt, fahren wir Montag, nein, ich meine Dienstag, nach Berlin."
+rules = ["self_corrections"]
+expected = "Wenn sie kommt, fahren wir Dienstag, nach Berlin."
+
+[[case]]
+name = "Ein bloßes Nein trägt keine Korrekturanweisung"
+input = "Er sagte nein, ich hörte es."
+rules = ["self_corrections"]
+expected = "Er sagte nein, ich hörte es."
+
+[[case]]
+name = "Explizit korrigiertes Objekt"
+input = "Ich bestelle Kaffee, nein, ich meine Tee."
+rules = ["self_corrections"]
+expected = "Ich bestelle Tee."
+
+[[case]]
+name = "Explizit korrigierter Name"
+input = "Ich treffe Anna, nein, ich meine Lisa."
+rules = ["self_corrections"]
+expected = "Ich treffe Lisa."
+
+[[case]]
+name = "Höfliche Aufforderung"
+input = "Bitte streich das."
+rules = ["self_corrections"]
+expected = "Bitte streich das."
+
+[[case]]
+name = "Mehrwortiger Ersatzort"
+input = "Wir fahren nach Berlin, nein, ich meine nach Bad Honnef."
+rules = ["self_corrections"]
+expected = "Wir fahren nach Bad Honnef."
+
+[[case]]
+name = "Mehrwortiger Ausgangsort"
+input = "Wir fahren nach Bad Honnef, nein, ich meine nach Berlin."
+rules = ["self_corrections"]
+expected = "Wir fahren nach Berlin."
+
+[[case]]
+name = "Wörtlicher Kontrast bei gleicher Präposition"
+input = "Sie arbeitet nicht für Geld, sondern für Gerechtigkeit."
+rules = ["self_corrections"]
+expected = "Sie arbeitet nicht für Geld, sondern für Gerechtigkeit."
+uncertain = ["nicht für Geld, sondern für Gerechtigkeit"]
+
+[[case]]
+name = "Gleicher Artikel allein kennzeichnet keinen Widerruf"
+input = "Nicht das Geld, sondern das Vertrauen zählt."
+rules = ["self_corrections"]
+expected = "Nicht das Geld, sondern das Vertrauen zählt."
+uncertain = ["Nicht das Geld, sondern das Vertrauen zählt"]
+
+[[case]]
+name = "Linke Hälfte des Kompositums bleibt erhalten"
+input = "Sie schreibt eine E-Mail, nein, ich meine Post."
+rules = ["self_corrections"]
+expected = "Sie schreibt eine E-Mail, nein, ich meine Post."
+uncertain = ["E-Mail, nein, ich meine Post"]
+
+[[case]]
+name = "Rechte Alternative enthält Bindestrich"
+input = "Wir wählen rot, äh, grün-blau."
+rules = ["self_corrections"]
+expected = "Wir wählen rot, äh, grün-blau."
+uncertain = ["rot, äh, grün-blau"]
+
+[[case]]
+name = "Sprachbefehl setzt Satzende am Widerruf"
+input = "Wir fahren am Dienstag, streich das Punkt"
+rules = ["voice_commands","self_corrections"]
+expected = "Wir fahren."
+
+[[case]]
+name = "Satzzeichen nach widerrufenem Listenelement"
+input = "Morgen, am Freitag, streich das."
+rules = ["self_corrections"]
+expected = "Morgen."
+
+[[case]]
+name = "Gewöhnliches eingeklammertes Zögern"
+input = "Ich möchte, äh, nach Hause."
+rules = ["filler_words","self_corrections"]
+expected = "Ich möchte nach Hause."
+
+[[case]]
+name = "Der ausdrückliche Ersatz nach einem Zögerer hat Vorrang"
+input = "Wir buchen zwei, äh, nein, ich meine drei Plätze."
+rules = ["filler_words", "self_corrections"]
+expected = "Wir buchen drei Plätze."
+
+[[case]]
+name = "Der Zögerer gehört auch ohne Füllwortregel zur ausdrücklichen Korrektur"
+input = "Wir buchen zwei, äh, nein, ich meine drei Plätze."
+rules = ["self_corrections"]
+expected = "Wir buchen drei Plätze."
+
+[[case]]
+name = "Ausdrücklicher Ersatz ohne Pausenkommas vor dem Nein"
+input = "Wir buchen zwei äh nein, ich meine drei Plätze."
+rules = ["self_corrections"]
+expected = "Wir buchen drei Plätze."
+
+[[case]]
+name = "Bloßer Widerspruch nach einem Zögerer erlaubt keine automatische Korrektur"
+input = "Wir buchen zwei, äh, nein danke."
+rules = ["self_corrections", "filler_words"]
+expected = "Wir buchen zwei, äh, nein danke."
+uncertain = ["zwei, äh, nein danke"]

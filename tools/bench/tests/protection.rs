@@ -113,3 +113,50 @@ fn requires_twenty_matching_beginnings_and_at_least_one_silence() {
         no_silence.contains("| testmodell | 0 / 0 | — | unvollständig | 20 / 20 | — | bestanden |")
     );
 }
+
+#[test]
+fn scores_raw_and_cleaned_outputs_from_the_same_call_against_the_original_reference() {
+    let recordings: Vec<_> = [(1u16, "Abgabe morgen"), (2, "ähm Platzhalter"), (3, "")]
+        .into_iter()
+        .map(|(id, reference)| Recording {
+            id,
+            samples: vec![0.0; id.into()],
+            reference: reference.into(),
+        })
+        .collect();
+    let mut engine = FixtureEngine {
+        silence_ids: &[3],
+        overrides: &[
+            (1, "ähm äh Abgabe morgen"),
+            (2, "ähm Platzhalter"),
+            (3, "ähm"),
+        ],
+        calls: 0,
+    };
+    let model = measure("testmodell", &recordings, &mut engine).unwrap();
+    assert_eq!(engine.calls, 1 + recordings.len());
+    let serialized = serde_json::to_string(&model).unwrap();
+    let report = render_report(
+        &ReportContext {
+            date: "2026-11-22".into(),
+            threads: 2,
+            logical_processors: 1,
+            processor: "Testprozessor".into(),
+            build: "Test".into(),
+            revision: "abc".into(),
+            uninstalled_models: vec![],
+        },
+        &[model],
+    );
+    for text in ["Abgabe", "morgen", "ähm", "Platzhalter"] {
+        assert!(!serialized.contains(text));
+        assert!(!report.contains(text));
+    }
+    assert!(report.contains("## Schritt 3.2 · Rohtext und bereinigter Text"));
+    assert!(
+        report.contains("| testmodell | 4 | 0 / 0 / 2 | 50,00 % | 0 / 1 / 0 | 25,00 % | -25,00 |")
+    );
+    assert!(report.contains("| testmodell | 2 / 1 | 1 / 1 | 1 / 0 |"));
+    assert!(report.contains("| Ende→Text roh / bereinigt (ms) | RTF roh / bereinigt |"));
+    assert!(report.contains("| testmodell | 001 | 002 |"));
+}

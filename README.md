@@ -235,6 +235,17 @@ gemessenes Modell eines der beiden Ziele verfehlt oder Daten für die Prüfung f
 Zum Nachprüfen die aufgeführten Fehlernummern lokal anhören und mit dem ersten
 Wort der jeweiligen TXT-Referenz vergleichen.
 
+Seit Schritt 3.2 enthält jeder Benchmark einen gepaarten Vergleich von Rohtext
+und bereinigtem Text. Das Software-Diktierprofil aus `crates/textfx` gilt für
+alle Aufnahmen. Beide Wortfehlerraten beziehen sich auf dieselben wörtlichen
+Korpusreferenzen. `--check-cleanup` prüft die exakten Fehlerzahlen je Modell
+und liefert bei einer Verschlechterung nach dem Schreiben des Berichts
+Exitcode 1. Für die Abnahme in einem eigenen Ordner diesen Befehl verwenden.
+
+```powershell
+cargo run --locked --offline --release --package bench -- --check-cleanup --output "$env:TEMP\qms-asr-3-2"
+```
+
 ## Leerlauf und Startzeit messen
 
 Die laufende App zuerst über **Beenden** schließen. Während der Messung die Einstellungen geschlossen lassen und keinen parallelen Build starten:

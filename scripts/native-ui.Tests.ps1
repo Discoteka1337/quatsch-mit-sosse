@@ -48,6 +48,14 @@ public static class QmsNativeWindows {
         return button != IntPtr.Zero && GetDlgItem(parent, id) == button
             && ReadControl(parent, 0x0111, new IntPtr(id), button, 2, 5000, out ignored) != IntPtr.Zero;
     }
+    public static string ControlText(IntPtr parent, int id) {
+        var control = GetDlgItem(parent, id);
+        var text = new StringBuilder(256);
+        UIntPtr length;
+        if (control == IntPtr.Zero || SendMessageTimeout(control, 0x000D, new IntPtr(text.Capacity), text, 2, 1000, out length) == IntPtr.Zero)
+            throw new InvalidOperationException("Der Text des Steuerelements ist nicht lesbar.");
+        return text.ToString();
+    }
     public static uint SelectedValue(IntPtr parent, int id, uint message) {
         UIntPtr value;
         var control = GetDlgItem(parent, id);
@@ -163,6 +171,30 @@ function Open-NativeSettings {
             [QmsNativeWindows]::IsWindowVisible($_)
         }).Count -eq 1
     } 'Das Einstellungsfenster muss sichtbar werden.'
+}
+
+function Assert-RestoredSettings {
+    param([IntPtr]$Window, [string]$DictationHotkey)
+    $differences = foreach ($field in @(
+        @('Diktierkürzel', 101, 0x000D, $DictationHotkey),
+        @('Umschaltmodus', 103, 0x0147, 1),
+        @('Lautstärke in Prozent', 110, 0x0147, 47),
+        @('Diktattöne', 111, 0x00F0, 0)
+    )) {
+        $name, $id, $message, $expected = $field
+        try {
+            $actual = if ($message -eq 0x000D) {
+                [QmsNativeWindows]::ControlText($Window, $id)
+            } else {
+                [QmsNativeWindows]::SelectedValue($Window, $id, $message)
+            }
+        } catch {
+            "$name (Steuerelement $id) konnte nicht gelesen werden."
+            continue
+        }
+        if ($actual -cne $expected) { "$name erwartet '$expected', angezeigt '$actual'." }
+    }
+    if ($differences) { throw "Nach dem Neustart: $($differences -join ' ')" }
 }
 
 function Start-NativeSession {
@@ -293,11 +325,12 @@ try {
         throw 'Bereit-Punkt, verschobene Position und Aufnahmeschutz müssen den Neustart überstehen.'
     }
     $settingsWindow = @([QmsNativeWindows]::AppWindows($script:nativeProcess.Id, $locale.appName) | Where-Object { $_ -ne $restored[0] })[0]
-    if ([QmsNativeWindows]::FindWindowEx($settingsWindow, [IntPtr]::Zero, 'Button', 'Strg+F10') -eq [IntPtr]::Zero -or
-        [QmsNativeWindows]::SelectedValue($settingsWindow, 103, 0x0147) -ne 1 -or
-        [QmsNativeWindows]::SelectedValue($settingsWindow, 110, 0x0147) -ne 47 -or
-        [QmsNativeWindows]::SelectedValue($settingsWindow, 111, 0x00F0) -ne 0) {
-        throw 'Kürzel, Umschaltmodus, Lautstärke und Tonauswahl müssen nach dem Neustart im Fenster erscheinen.'
+    Assert-RestoredSettings $settingsWindow 'Strg+F10'
+    # The reinsert button carries this caption, but the dictation button must reject it.
+    $reinsertHotkey = (Get-Content -LiteralPath "$settingsFile" -Encoding UTF8 -Raw | ConvertFrom-Json).reinsertHotkey
+    $mismatch = try { Assert-RestoredSettings $settingsWindow $reinsertHotkey } catch { $_.Exception.Message }
+    if (-not ($mismatch -like '*Diktierkürzel*' -and $mismatch.Contains($reinsertHotkey) -and $mismatch.Contains('Strg+F10'))) {
+        throw 'Die Neustartprüfung muss beim vertauschten Kürzel das Diktierfeld mit Soll- und Istwert nennen.'
     }
     $null = Stop-QmsMeasuredApp -Process $script:nativeProcess -StopEvent $stopEvent -Tracked $script:nativeTracked
     $cleanExit = $true

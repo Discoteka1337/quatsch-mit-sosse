@@ -11,6 +11,8 @@ pub(super) enum Kind {
     // An explicit command takes precedence over inferred filler punctuation.
     CommandPunctuation,
     Protected,
+    // A correction with an ambiguous scope is kept verbatim for review.
+    Uncertain,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -25,6 +27,23 @@ impl Token {
             kind,
             text: text.into(),
         }
+    }
+}
+
+// Inspect adjacent tokens from the word outward. These separators can belong
+// to addresses, paths, code identifiers or a longer hyphenated compound.
+pub(super) fn identifier_edge<'a>(mut neighbors: impl Iterator<Item = &'a Token>) -> bool {
+    let Some(mark) = neighbors.next().filter(|t| t.kind == Kind::Punctuation) else {
+        return false;
+    };
+    match mark.text.as_str() {
+        "#" | "@" | "/" | "\\" | "`" | "=" | "<" | ">" | "-" | "‐" | "‑" => true,
+        "." | "&" | "?" => neighbors
+            .next()
+            .is_some_and(|t| matches!(t.kind, Kind::Word | Kind::Protected)),
+        ":" => neighbors.next().is_some_and(|t| t.text == ":"),
+        "(" => neighbors.next().is_some_and(|t| t.text == ")"),
+        _ => false,
     }
 }
 

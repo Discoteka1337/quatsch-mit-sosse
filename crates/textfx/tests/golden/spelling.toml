@@ -1,0 +1,72 @@
+[[case]]
+name = "Langes o in gebeugten Adjektiven"
+input = "die grosse und die grössere Tasche"
+rules = ["dictionary"]
+expected = "die große und die größere Tasche"
+
+[[case]]
+name = "Infinitiv und Vorsilbe"
+input = "wir schliessen und verschliessen die Türen"
+rules = ["dictionary"]
+expected = "wir schließen und verschließen die Türen"
+
+[[case]]
+name = "Partizip nach trennbarer Vorsilbe"
+input = "die anschliessende Sitzung"
+rules = ["dictionary"]
+expected = "die anschließende Sitzung"
+
+[[case]]
+name = "Satzanfang mit Adverb"
+input = "Anschliessend gehen wir"
+rules = ["dictionary"]
+expected = "Anschließend gehen wir"
+
+[[case]]
+name = "Kurzvokale und mehrdeutige Schreibungen"
+input = "Masse Busse Ross muss fassen wissen"
+rules = ["dictionary"]
+expected = "Masse Busse Ross muss fassen wissen"
+
+[[case]]
+name = "Geschützter Wörterbucheintrag"
+input = "im Hotel grosse Aussicht"
+rules = ["dictionary"]
+proper_names = ["grosse Aussicht"]
+expected = "im Hotel grosse Aussicht"
+
+[[case]]
+name = "Familienname und Versalien"
+input = "Frau Gross und Herr Weiss schreiben GROSS"
+rules = ["dictionary"]
+expected = "Frau Gross und Herr Weiss schreiben GROSS"
+
+[[case]]
+name = "Keine Änderung am Bezeichner oder Dateinamen"
+input = "gross.rs /schliessen anschliessend@example.org und meine_grosse_datei"
+rules = ["dictionary"]
+expected = "gross.rs /schliessen anschliessend@example.org und meine_grosse_datei"
+
+[[case]]
+name = "Nur ganze Wortformen"
+input = "grossforschung und schliessmaschine"
+rules = ["dictionary"]
+expected = "grossforschung und schliessmaschine"
+
+[[case]]
+name = "Ohne Wörterbuchregel bleibt die Variante erhalten"
+input = "wir schliessen das Tor"
+rules = []
+expected = "wir schliessen das Tor"
+
+[[case]]
+name = "Bestehende deutsche Schreibung ist stabil"
+input = "große Ziele sind einschließlich Anhang erfasst"
+rules = ["dictionary"]
+expected = "große Ziele sind einschließlich Anhang erfasst"
+
+[[case]]
+name = "Vorsilbe aus bleibt vor dem Wortstamm intakt"
+input = "Ausschliesslich aktuelle Angebote ausschliessen"
+rules = ["dictionary"]
+expected = "Ausschließlich aktuelle Angebote ausschließen"

@@ -4,7 +4,7 @@ use icu_properties::{
     props::{GeneralCategory, GeneralCategoryGroup},
 };
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct WordErrors {
     pub substitutions: usize,
     pub deletions: usize,

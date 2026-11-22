@@ -1,7 +1,7 @@
 use bench::{
     corpus::load_corpus,
     measurement::{ModelResult, measure},
-    report::{ReportContext, protection_checks, render_report},
+    report::{ReportContext, cleanup_passed, protection_checks, render_report},
 };
 use quatsch_mit_sosse_models::{Manager, ModelKind};
 use quatsch_mit_sosse_stt::{EngineConfig, create_engine};
@@ -20,6 +20,7 @@ struct Options {
     corpus: PathBuf,
     output: PathBuf,
     check_protection: bool,
+    check_cleanup: bool,
 }
 
 fn parse_options(args: &[OsString]) -> Result<Options, &'static str> {
@@ -30,6 +31,7 @@ fn parse_options(args: &[OsString]) -> Result<Options, &'static str> {
         corpus: root.join("testdata/private/corpus"),
         output: root.join("docs/benchmarks"),
         check_protection: false,
+        check_cleanup: false,
     };
     let mut seen = std::collections::HashSet::new();
     let mut args = args.iter();
@@ -41,9 +43,15 @@ fn parse_options(args: &[OsString]) -> Result<Options, &'static str> {
             options.check_protection = true;
             continue;
         }
+        if flag == "--check-cleanup" {
+            options.check_cleanup = true;
+            continue;
+        }
         let value = args
             .next()
-            .filter(|value| !value.is_empty() && *value != "--check-protection")
+            .filter(|value| {
+                !value.is_empty() && *value != "--check-protection" && *value != "--check-cleanup"
+            })
             .ok_or("Für eine Option fehlt der Wert.")?;
         match flag.to_str() {
             Some("--date") => {
@@ -91,11 +99,11 @@ fn run() -> Result<(), &'static str> {
     if args == [OsString::from("--help")] || args == [OsString::from("-h")] {
         println!(
             "Lokaler ASR-Benchmark\n\
-            Aufruf: cargo run --release -p bench -- [--date JJJJ-MM-TT] [--threads N] [--corpus ORDNER] [--output ORDNER] [--check-protection]\n\
+            Aufruf: cargo run --release -p bench -- [--date JJJJ-MM-TT] [--threads N] [--corpus ORDNER] [--output ORDNER] [--check-protection] [--check-cleanup]\n\
             Standard: privater Projektkorpus, docs/benchmarks, lokales Tagesdatum und 2 Threads.\n\
             Misst alle vollständig installierten ASR-Modelle mit Silero-VAD, ohne Downloads.\n\
             Der Tagesbericht wird atomar ersetzt. Satztexte und Audio werden nie ausgegeben.\n\
-            --check-protection meldet nach dem Schreiben des Berichts Exitcode 1, wenn ein gemessenes Modell die Ziele für Stille oder Satzanfänge verfehlt oder die Stichprobe unvollständig ist."
+            --check-protection prüft Stille und Satzanfänge. --check-cleanup prüft bei jedem Modell die gepoolte WER gegen die wörtliche Referenz. Verfehlte oder unvollständige Abnahmen liefern nach dem Schreiben des Berichts Exitcode 1."
         );
         return Ok(());
     }
@@ -202,6 +210,11 @@ fn run() -> Result<(), &'static str> {
         .persist(path)
         .map_err(|_| "Der Bericht konnte nicht bereitgestellt werden.")?;
     println!("Benchmark abgeschlossen. Bericht: asr-{}.md", options.date);
+    if options.check_cleanup && results.iter().any(|model| !cleanup_passed(model)) {
+        return Err(
+            "Mindestens ein Modell verfehlt die WER-Abnahme für die Bereinigung. Die Messwerte stehen im Bericht.",
+        );
+    }
     if options.check_protection
         && results
             .iter()
@@ -277,6 +290,20 @@ mod tests {
         assert!(parse_options(&args(&["--check-protection", "--check-protection"])).is_err());
         assert!(parse_options(&args(&["--output", "--check-protection"])).is_err());
         assert!(!parse_options(&[]).unwrap().check_protection);
+    }
+
+    #[test]
+    fn cleanup_check_works_on_its_own_or_alongside_the_protection_check() {
+        assert!(!parse_options(&[]).unwrap().check_cleanup);
+        assert!(
+            parse_options(&args(&["--check-cleanup"]))
+                .unwrap()
+                .check_cleanup
+        );
+        let both = parse_options(&args(&["--check-protection", "--check-cleanup"])).unwrap();
+        assert!(both.check_protection && both.check_cleanup);
+        assert!(parse_options(&args(&["--check-cleanup", "--check-cleanup"])).is_err());
+        assert!(parse_options(&args(&["--output", "--check-cleanup"])).is_err());
     }
 
     #[test]

@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 quatsch-mit-sosse-models = { path = "../../crates/models" }
 quatsch-mit-sosse-stt = { path = "../../crates/stt" }
+quatsch-mit-sosse-textfx = { path = "../../crates/textfx" }
 hound = "3.5.1"
 icu_normalizer = { version = "2.4.0", default-features = false, features = ["compiled_data", "utf8_iter"] }
 icu_properties = "2.4.0"

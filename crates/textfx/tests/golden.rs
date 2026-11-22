@@ -20,6 +20,9 @@ struct Case {
     strength: Strength,
     #[serde(default)]
     proper_names: Vec<String>,
+    digits_from: Option<u32>,
+    #[serde(default)]
+    uncertain: Vec<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -28,6 +31,16 @@ enum Strength {
     #[default]
     Standard,
     Strong,
+}
+
+#[test]
+fn corrections_fixture_has_no_trailing_blank_line() {
+    let last_line = include_str!("golden/corrections.toml").lines().next_back();
+    assert_ne!(
+        last_line,
+        Some(""),
+        "corrections.toml ends with a blank line"
+    );
 }
 
 #[test]
@@ -40,6 +53,7 @@ fn run_all_golden_files() {
         .collect();
     paths.sort();
 
+    let mut part_two_count = 0;
     let mut count = 0;
     let mut failures = Vec::new();
     for path in paths {
@@ -47,6 +61,12 @@ fn run_all_golden_files() {
         let cases = fs::read_to_string(&path).unwrap();
         let suite: Suite = toml::from_str(&cases).unwrap_or_else(|err| panic!("{file}: {err}"));
         assert!(!suite.case.is_empty(), "{file} is empty");
+        if matches!(
+            file.as_ref(),
+            "corrections.toml" | "numbers.toml" | "punctuation.toml" | "spelling.toml"
+        ) {
+            part_two_count += suite.case.len();
+        }
         let mut names = HashSet::new();
         for case in suite.case {
             let id = format!("{file} / {}", case.name);
@@ -63,11 +83,19 @@ fn run_all_golden_files() {
                 Strength::Standard => FillerStrength::Standard,
                 Strength::Strong => FillerStrength::Strong,
             };
-            let actual = pipeline.apply(&case.input);
-            if actual != case.expected {
+            if let Some(threshold) = case.digits_from {
+                pipeline.digits_from = threshold;
+            }
+            let actual = pipeline.apply_with_review(&case.input);
+            let uncertain: Vec<_> = actual
+                .uncertain
+                .iter()
+                .map(|range| &actual.text[range.clone()])
+                .collect();
+            if actual.text != case.expected || uncertain != case.uncertain {
                 failures.push(format!(
-                    "{id}: expected {:?}, got {actual:?}",
-                    case.expected
+                    "{id}: expected {:?} (uncertain {:?}), got {:?} (uncertain {uncertain:?})",
+                    case.expected, case.uncertain, actual.text
                 ));
             }
             count += 1;
@@ -75,7 +103,11 @@ fn run_all_golden_files() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
     assert!(
-        count >= 80,
-        "Expected at least 80 golden cases, found {count}"
+        part_two_count >= 80,
+        "Expected 80 additional golden cases, found {part_two_count}"
+    );
+    assert!(
+        count - part_two_count >= 80,
+        "Expected at least 80 golden cases from the first part"
     );
 }

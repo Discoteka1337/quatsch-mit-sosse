@@ -1,0 +1,529 @@
+[[case]]
+name = "Zahlwörter einschließlich zwölf"
+input = "null eins zwei drei vier fünf sechs sieben acht neun zehn elf zwölf"
+rules = ["numbers"]
+expected = "null eins zwei drei vier fünf sechs sieben acht neun zehn elf zwölf"
+
+[[case]]
+name = "Beginn der Ziffernschreibweise"
+input = "elf, zwölf und dreizehn Plätze"
+rules = ["numbers"]
+expected = "elf, zwölf und 13 Plätze"
+
+[[case]]
+name = "Unregelmäßige Zehner"
+input = "sechzehn, siebzehn, dreißig, sechzig, siebzig"
+rules = ["numbers"]
+expected = "16, 17, 30, 60, 70"
+
+[[case]]
+name = "Zusammengesetzte Zehner"
+input = "einundzwanzig bis neunundneunzig"
+rules = ["numbers"]
+expected = "21 bis 99"
+
+[[case]]
+name = "Hunderter mit Einer und Zehner"
+input = "einhundertvierundfünfzig Seiten"
+rules = ["numbers"]
+expected = "154 Seiten"
+
+[[case]]
+name = "Runder Hunderter"
+input = "hundert Seiten"
+rules = ["numbers"]
+expected = "100 Seiten"
+
+[[case]]
+name = "Volle Tausend"
+input = "zweitausend Besucher"
+rules = ["numbers"]
+expected = "2000 Besucher"
+
+[[case]]
+name = "Jahreszahl im Satz"
+input = "im Jahr zweitausendsechsundzwanzig"
+rules = ["numbers"]
+expected = "im Jahr 2026"
+
+[[case]]
+name = "Jahreszahl in Hundertern"
+input = "neunzehnhundertneunundachtzig"
+rules = ["numbers"]
+expected = "1989"
+
+[[case]]
+name = "Sechsstellige Zahl"
+input = "hundertdreiundzwanzigtausendvierhundertsechsundfünfzig"
+rules = ["numbers"]
+expected = "123456"
+
+[[case]]
+name = "Keine Teilworttreffer"
+input = "Dreizehnjährige und Achterbahn"
+rules = ["numbers"]
+expected = "Dreizehnjährige und Achterbahn"
+
+[[case]]
+name = "Attributive Eins bleibt Artikel"
+input = "ein Platz für eine Besucherin"
+rules = ["numbers"]
+digits_from = 0
+expected = "ein Platz für eine Besucherin"
+
+[[case]]
+name = "Schwelle null"
+input = "eins, zwei und zwölf"
+rules = ["numbers"]
+digits_from = 0
+expected = "1, 2 und 12"
+
+[[case]]
+name = "Schwelle zwanzig"
+input = "neunzehn oder zwanzig Minuten"
+rules = ["numbers"]
+digits_from = 20
+expected = "neunzehn oder 20 Minuten"
+
+[[case]]
+name = "Schwelle bei Hundert"
+input = "neunundneunzig bis hundert"
+rules = ["numbers"]
+digits_from = 100
+expected = "neunundneunzig bis 100"
+
+[[case]]
+name = "Halbstundenausdruck"
+input = "wir kommen gegen halb drei"
+rules = ["numbers"]
+expected = "wir kommen gegen halb drei"
+
+[[case]]
+name = "Halbstunde bei niedriger Schwelle"
+input = "um halb drei oder halb zwölf"
+rules = ["numbers"]
+digits_from = 1
+expected = "um halb drei oder halb zwölf"
+
+[[case]]
+name = "Prozentsatz mit Nachkommastelle"
+input = "drei Komma fünf Prozent"
+rules = ["numbers"]
+expected = "3,5 %"
+
+[[case]]
+name = "Ganze Prozent"
+input = "eins bis sieben Prozent"
+rules = ["numbers"]
+expected = "eins bis 7 %"
+
+[[case]]
+name = "Mehrere Ziffern nach dem Komma"
+input = "null Komma null null fünf"
+rules = ["numbers"]
+expected = "0,005"
+
+[[case]]
+name = "Dezimalbruch mit gesprochenem Zehner"
+input = "zwei Komma fünfundzwanzig Prozent"
+rules = ["numbers"]
+expected = "2,25 %"
+
+[[case]]
+name = "Komma ohne Nachkommastellen"
+input = "drei Komma dann weiter"
+rules = ["numbers"]
+expected = "drei Komma dann weiter"
+
+[[case]]
+name = "Pausenkomma vor einer Aufzählung"
+input = "drei, fünf, vierzehn."
+rules = ["numbers"]
+expected = "drei, fünf, 14."
+
+[[case]]
+name = "Betrag mit Cent als Zahlwort"
+input = "zwölf Euro neunundneunzig"
+rules = ["numbers"]
+expected = "12,99 €"
+
+[[case]]
+name = "Einzelne Centstelle"
+input = "zwölf Euro fünf Cent"
+rules = ["numbers"]
+expected = "12,05 €"
+
+[[case]]
+name = "Euro im Singular"
+input = "ein Euro fünfzig"
+rules = ["numbers"]
+expected = "1,50 €"
+
+[[case]]
+name = "Euro ohne Cent"
+input = "genau acht Euro."
+rules = ["numbers"]
+expected = "genau 8 €."
+
+[[case]]
+name = "Dezimalbetrag"
+input = "neun Komma neun neun Euro"
+rules = ["numbers"]
+expected = "9,99 €"
+
+[[case]]
+name = "Zeilenumbruch trennt die Einheit"
+input = "acht\nEuro"
+rules = ["numbers"]
+expected = "acht\nEuro"
+
+[[case]]
+name = "Uhrzeit mit Minuten"
+input = "vierzehn Uhr dreißig"
+rules = ["numbers"]
+expected = "14:30 Uhr"
+
+[[case]]
+name = "Einstellige Stunde und Minute"
+input = "um neun Uhr fünf."
+rules = ["numbers"]
+expected = "um 09:05 Uhr."
+
+[[case]]
+name = "Mitternacht"
+input = "null Uhr null"
+rules = ["numbers"]
+expected = "00:00 Uhr"
+
+[[case]]
+name = "Letzte Minute vor Mitternacht"
+input = "dreiundzwanzig Uhr neunundfünfzig"
+rules = ["numbers"]
+expected = "23:59 Uhr"
+
+[[case]]
+name = "Ungültige Minutenzahl"
+input = "vierzehn Uhr sechzig"
+rules = ["numbers"]
+expected = "vierzehn Uhr sechzig"
+
+[[case]]
+name = "Ganze Stunde"
+input = "um sechzehn Uhr beginnt es"
+rules = ["numbers"]
+expected = "um 16 Uhr beginnt es"
+
+[[case]]
+name = "Tag und Monatsname"
+input = "dritter März"
+rules = ["numbers"]
+expected = "3. März"
+
+[[case]]
+name = "Datumsangabe mit Flexion"
+input = "am dritten März"
+rules = ["numbers"]
+expected = "am 3. März"
+
+[[case]]
+name = "Kleingeschriebener Monatsname"
+input = "bis zum ersten januar"
+rules = ["numbers"]
+expected = "bis zum 1. Januar"
+
+[[case]]
+name = "Siebter und achter Tag"
+input = "siebter Mai und achter August"
+rules = ["numbers"]
+expected = "7. Mai und 8. August"
+
+[[case]]
+name = "Sechster Tag vor einem Monat"
+input = "am sechsten Juni"
+rules = ["numbers"]
+expected = "am 6. Juni"
+
+[[case]]
+name = "Zweistelliger Tag und Jahr"
+input = "der einunddreißigste Dezember zweitausendsechsundzwanzig"
+rules = ["numbers"]
+expected = "der 31. Dezember 2026"
+
+[[case]]
+name = "Ende Februar bleibt plausibel"
+input = "am dreißigsten Februar"
+rules = ["numbers"]
+expected = "am dreißigsten Februar"
+
+[[case]]
+name = "Unmögliches Monatsende"
+input = "einunddreißigster April"
+rules = ["numbers"]
+expected = "einunddreißigster April"
+
+[[case]]
+name = "Kein Monatsname nach Ordinal"
+input = "dritter Entwurf, erster Versuch"
+rules = ["numbers"]
+expected = "dritter Entwurf, erster Versuch"
+
+[[case]]
+name = "Ungültige Wortbildung"
+input = "elfundzwanzig und sechzehnundzwanzig"
+rules = ["numbers"]
+expected = "elfundzwanzig und sechzehnundzwanzig"
+
+[[case]]
+name = "Wörterbucheintrag mit Zahlwort"
+input = "Studio Dreizehn feiert vierzehn Jahre"
+rules = ["numbers"]
+proper_names = ["Studio Dreizehn"]
+expected = "Studio Dreizehn feiert 14 Jahre"
+
+[[case]]
+name = "Fertige Zahlen bleiben unverändert"
+input = "−000,50 und 03.02.2026 und 09:05 Uhr"
+rules = ["numbers"]
+expected = "−000,50 und 03.02.2026 und 09:05 Uhr"
+
+[[case]]
+name = "Umlaut in zerlegter Darstellung"
+input = "dritter März, fünfzig Euro"
+rules = ["numbers"]
+expected = "3. März, 50 €"
+
+[[case]]
+name = "Bindestrich im Namen"
+input = "der Dreizehn-Punkte-Plan"
+rules = ["numbers"]
+expected = "der Dreizehn-Punkte-Plan"
+
+[[case]]
+name = "Kein Zeitwert über Absatzgrenzen"
+input = "vierzehn Uhr\ndreißig Gäste"
+rules = ["numbers"]
+expected = "14 Uhr\n30 Gäste"
+
+[[case]]
+name = "Dezimalkomma bei aktiven Sprachbefehlen"
+input = "drei Komma fünf Prozent Punkt"
+rules = ["numbers", "voice_commands"]
+expected = "3,5 %."
+
+[[case]]
+name = "Datum neben Füllwort und Satzpunkt"
+input = "ähm, am dritten März sind dreizehn Leute da Punkt"
+rules = ["voice_commands", "numbers", "filler_words"]
+expected = "am 3. März sind 13 Leute da."
+
+[[case]]
+name = "Nachkommastellen vor Einheitenende"
+input = "Es kostet drei Euro, fünf sind zu viel."
+rules = ["numbers"]
+expected = "Es kostet 3 €, fünf sind zu viel."
+
+[[case]]
+name = "Ungültige Uhrstunde"
+input = "fünfundzwanzig Uhr dreißig"
+rules = ["numbers"]
+expected = "fünfundzwanzig Uhr dreißig"
+
+[[case]]
+name = "Ziffernschwelle gilt nicht für Beträge"
+input = "dreizehn Euro zwanzig"
+rules = ["numbers"]
+digits_from = 100
+expected = "13,20 €"
+
+[[case]]
+name = "Deaktivierte Zahlenregel"
+input = "dritter März um vierzehn Uhr dreißig"
+rules = []
+expected = "dritter März um vierzehn Uhr dreißig"
+
+[[case]]
+name = "Mischung aus Ziffern und Wörtern"
+input = "007 und vierzehn Aufträge"
+rules = ["numbers"]
+expected = "007 und 14 Aufträge"
+
+[[case]]
+name = "Uhrzeit mit führender gesprochener Null"
+input = "zwei Uhr null fünf"
+rules = ["numbers"]
+expected = "02:05 Uhr"
+
+[[case]]
+name = "Geldbeträge in aufeinanderfolgenden Sätzen"
+input = "drei Euro. vier Euro elf Cent."
+rules = ["numbers"]
+expected = "3 €. 4,11 €."
+
+[[case]]
+name = "Zwei Euroangaben in einer Liste"
+input = "zwölf Euro, neun Euro und siebzehn Euro"
+rules = ["numbers"]
+expected = "12 €, 9 € und 17 €"
+
+[[case]]
+name = "Cent vor einer Mengenangabe"
+input = "Für vier Euro fünf Brötchen kaufen."
+rules = ["numbers"]
+expected = "Für 4 € fünf Brötchen kaufen."
+
+[[case]]
+name = "Uhrzeit vor einer Mengenangabe"
+input = "Um acht Uhr zwanzig Brötchen holen."
+rules = ["numbers"]
+expected = "Um 8 Uhr 20 Brötchen holen."
+
+[[case]]
+name = "Zeitangabe am Folgesatz"
+input = "um ein Uhr fünf bin ich da"
+rules = ["numbers"]
+expected = "um 01:05 Uhr bin ich da"
+
+[[case]]
+name = "Uhr als Gegenstand"
+input = "eine Uhr für dreizehn Euro"
+rules = ["numbers"]
+expected = "eine Uhr für 13 €"
+
+[[case]]
+name = "Währungsname im Kompositum"
+input = "zwölf Euro-Scheine"
+rules = ["numbers"]
+expected = "zwölf Euro-Scheine"
+
+[[case]]
+name = "Große Menge mit eigenständiger Einheit"
+input = "rund zwei Millionen"
+rules = ["numbers"]
+expected = "rund 2000000"
+
+[[case]]
+name = "Große zusammengesetzte Menge"
+input = "zwei Millionen dreihunderttausend Einwohner"
+rules = ["numbers"]
+expected = "2300000 Einwohner"
+
+[[case]]
+name = "Cent mit Bindewort und Einheit"
+input = "ein Euro und zwei Cent"
+rules = ["numbers"]
+expected = "1,02 €"
+
+[[case]]
+name = "Zwei getrennte Geldbeträge"
+input = "ein Euro und zwei Euro"
+rules = ["numbers"]
+expected = "1 € und 2 €"
+
+[[case]]
+name = "Zahl vor einem geschützten Personennamen"
+input = "die Drei und zwölf Euro im Topf"
+rules = ["numbers"]
+proper_names = ["Drei"]
+expected = "die Drei und 12 € im Topf"
+
+[[case]]
+name = "Geldbetrag mit Million im Singular"
+input = "eine Million Euro"
+rules = ["numbers"]
+expected = "1000000 €"
+
+[[case]]
+name = "Ein Cent nach ganzem Eurobetrag"
+input = "zwei Euro und ein Cent"
+rules = ["numbers"]
+expected = "2,01 €"
+
+[[case]]
+name = "Zwei aufeinanderfolgende Preise bei kleingeschriebener Einheit"
+input = "acht euro neun euro"
+rules = ["numbers"]
+expected = "8 € 9 €"
+
+[[case]]
+name = "Menge mit Adjektiv nach einem Preis"
+input = "Für fünf Euro drei frische Brötchen kaufen."
+rules = ["numbers"]
+expected = "Für 5 € drei frische Brötchen kaufen."
+
+[[case]]
+name = "Menge mit Adjektiv nach einer Uhrzeit"
+input = "Um acht Uhr fünf neue Gäste empfangen."
+rules = ["numbers"]
+expected = "Um 8 Uhr fünf neue Gäste empfangen."
+
+[[case]]
+name = "Einstellige Centangabe vor einer Präposition"
+input = "Vier Euro fünf pro Kilo."
+rules = ["numbers"]
+expected = "4,05 € pro Kilo."
+
+[[case]]
+name = "Minuten vor Aussage über die Abfahrt"
+input = "Um acht Uhr fünf kommt der Zug."
+rules = ["numbers"]
+expected = "Um 08:05 Uhr kommt der Zug."
+
+[[case]]
+name = "Mehrere Adjektive vor der gezählten Ware"
+input = "Für elf Euro vier kleine rote Becher."
+rules = ["numbers"]
+expected = "Für 11 € vier kleine rote Becher."
+
+[[case]]
+name = "Minuten vor einer Präposition mit scheinbarer Adjektivendung"
+input = "Um vierzehn Uhr fünf ohne Pause weiter."
+rules = ["numbers"]
+expected = "Um 14:05 Uhr ohne Pause weiter."
+
+[[case]]
+name = "Vollständiges Datum mit numerisch diktiertem Monat"
+input = "Am dritten vierten zweitausenddreißig ist die Abgabe."
+rules = ["numbers"]
+expected = "Am 03.04.2030 ist die Abgabe."
+
+[[case]]
+name = "Getrennt erkannte Bestandteile des Jahres"
+input = "Wir wählen den siebten elften zwei tausend ein und dreißig."
+rules = ["numbers"]
+expected = "Wir wählen den 07.11.2031."
+
+[[case]]
+name = "Bereits als Ziffer erkanntes Jahr"
+input = "vom dreizehnten zweiten 2042 bis zum vierzehnten zweiten 2042"
+rules = ["numbers"]
+expected = "vom 13.02.2042 bis zum 14.02.2042"
+
+[[case]]
+name = "Schalttag mit numerisch diktiertem Monat"
+input = "am neunundzwanzigsten zweiten zweitausendvierundzwanzig"
+rules = ["numbers"]
+expected = "am 29.02.2024"
+
+[[case]]
+name = "Unmögliche Daten werden nicht zu einem Datum verbunden"
+input = "am einunddreißigsten vierten 2030 oder neunundzwanzigsten zweiten 2100"
+rules = ["numbers"]
+expected = "am einunddreißigsten vierten 2030 oder neunundzwanzigsten zweiten 2100"
+
+[[case]]
+name = "Zwei Ordnungszahlen allein ergeben kein vollständiges Datum"
+input = "der dritte vierte Versuch"
+rules = ["numbers"]
+expected = "der dritte vierte Versuch"
+
+[[case]]
+name = "Zahlwörter im Datum bleiben durch Zeilenwechsel getrennt"
+input = "am dritten\nvierten 2030"
+rules = ["numbers"]
+expected = "am dritten\nvierten 2030"
+
+[[case]]
+name = "Zwei Jahresangaben werden nicht verkettet"
+input = "vom ersten zweiten zweitausenddreißig bis zweitausendeinunddreißig"
+rules = ["numbers"]
+expected = "vom 01.02.2030 bis 2031"

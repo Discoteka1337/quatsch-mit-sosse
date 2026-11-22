@@ -1,10 +1,10 @@
 use crate::FillerStrength;
 use crate::tokens::{Kind, Token, word_key};
 
-pub(super) fn apply(tokens: &mut Vec<Token>, strength: FillerStrength) {
+pub(super) fn apply(tokens: &mut Vec<Token>, strength: FillerStrength, self_corrections: bool) {
     let mut cursor = 0;
     while cursor < tokens.len() {
-        if !is_filler(tokens, cursor, strength) {
+        if !is_filler(tokens, cursor, strength, self_corrections) {
             cursor += 1;
             continue;
         }
@@ -14,7 +14,8 @@ pub(super) fn apply(tokens: &mut Vec<Token>, strength: FillerStrength) {
             start -= 1;
         }
         let mut end = cursor + 1;
-        while end < tokens.len() && (is_separator(&tokens[end]) || is_filler(tokens, end, strength))
+        while end < tokens.len()
+            && (is_separator(&tokens[end]) || is_filler(tokens, end, strength, self_corrections))
         {
             end += 1;
         }
@@ -24,13 +25,23 @@ pub(super) fn apply(tokens: &mut Vec<Token>, strength: FillerStrength) {
     tokens.retain(|token| !token.text.is_empty());
 }
 
-fn is_filler(tokens: &[Token], index: usize, strength: FillerStrength) -> bool {
+fn is_filler(
+    tokens: &[Token],
+    index: usize,
+    strength: FillerStrength,
+    self_corrections: bool,
+) -> bool {
     if tokens[index].kind != Kind::Word {
         return false;
     }
     let word = word_key(&tokens[index].text);
     let candidate = match word.as_str() {
-        "äh" | "ähm" | "öhm" | "hm" | "ehm" => true,
+        "äh" => {
+            !self_corrections
+                || crate::corrections::hesitation(&tokens[..index], &tokens[index + 1..])
+                    == crate::corrections::Hesitation::Ordinary
+        }
+        "ähm" | "öhm" | "hm" | "ehm" => true,
         "also" | "halt" | "quasi" => strength == FillerStrength::Strong,
         _ => false,
     };
@@ -153,7 +164,7 @@ fn ends_subordinate_clause(left: &[Token], right: &[Token]) -> bool {
         .is_some_and(|first| first.kind == Kind::Word && is_subordinator(&word_key(&first.text)))
 }
 
-fn verb_agrees_with_pronoun(verb: &Token, subject: &Token) -> bool {
+pub(super) fn verb_agrees_with_pronoun(verb: &Token, subject: &Token) -> bool {
     if verb.kind != Kind::Word || subject.kind != Kind::Word {
         return false;
     }

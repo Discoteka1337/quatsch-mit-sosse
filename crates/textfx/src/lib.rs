@@ -1,6 +1,22 @@
 mod commands;
+mod corrections;
+mod dictionary;
 mod fillers;
+mod german_spelling;
+mod numbers;
+mod punctuation;
 mod tokens;
+
+pub use dictionary::software_dictation_pipeline;
+use std::ops::Range;
+use tokens::Kind;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CleanupResult {
+    pub text: String,
+    /// Nonoverlapping UTF-8 byte ranges in `text`, in reading order.
+    pub uncertain: Vec<Range<usize>>,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Rule {
@@ -51,6 +67,8 @@ pub enum FillerStrength {
 pub struct Pipeline {
     enabled: [bool; Rule::ORDER.len()],
     pub filler_strength: FillerStrength,
+    /// Minimum value written as digits for ordinary cardinal numbers.
+    pub digits_from: u32,
     /// Dictionary terms whose original spelling and internal punctuation are preserved.
     pub proper_names: Vec<String>,
 }
@@ -67,6 +85,7 @@ impl Pipeline {
         let mut pipeline = Self {
             enabled: [false; Rule::ORDER.len()],
             filler_strength: FillerStrength::Standard,
+            digits_from: 13,
             proper_names: Vec::new(),
         };
         for rule in rules {
@@ -84,25 +103,47 @@ impl Pipeline {
     }
 
     pub fn apply(&self, input: &str) -> String {
+        self.apply_with_review(input).text
+    }
+
+    pub fn apply_with_review(&self, input: &str) -> CleanupResult {
         if !self.enabled.contains(&true) {
-            return input.to_owned();
+            return CleanupResult {
+                text: input.to_owned(),
+                uncertain: Vec::new(),
+            };
         }
         let mut tokens = tokens::tokenize(input, &self.proper_names);
         for rule in Rule::ORDER {
             if self.is_enabled(rule) {
                 match rule {
                     Rule::VoiceCommands => commands::apply(&mut tokens),
-                    Rule::FillerWords => fillers::apply(&mut tokens, self.filler_strength),
+                    Rule::Dictionary => {
+                        dictionary::apply(&mut tokens, &self.proper_names);
+                        german_spelling::apply(&mut tokens);
+                    }
+                    Rule::FillerWords => fillers::apply(
+                        &mut tokens,
+                        self.filler_strength,
+                        self.is_enabled(Rule::SelfCorrections),
+                    ),
+                    Rule::SelfCorrections => corrections::apply(&mut tokens),
+                    Rule::Numbers => numbers::apply(&mut tokens, self.digits_from),
+                    Rule::Punctuation => punctuation::apply(&mut tokens),
                     // These stages have a fixed position for subsequent implementation steps.
-                    Rule::Dictionary
-                    | Rule::SelfCorrections
-                    | Rule::Numbers
-                    | Rule::Punctuation
-                    | Rule::Snippets
-                    | Rule::Style => {}
+                    Rule::Snippets | Rule::Style => {}
                 }
             }
         }
-        tokens.into_iter().map(|token| token.text).collect()
+        let mut text = String::with_capacity(input.len());
+        let mut uncertain = Vec::new();
+        for token in tokens {
+            let start = text.len();
+            text.push_str(&token.text);
+            if token.kind == Kind::Uncertain {
+                uncertain.push(start..text.len());
+            }
+        }
+        CleanupResult { text, uncertain }
     }
 }

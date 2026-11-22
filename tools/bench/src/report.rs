@@ -121,9 +121,99 @@ pub fn render_report(context: &ReportContext, results: &[ModelResult]) -> String
         render_model(&mut report, result);
     }
     render_protection_checks(&mut report, results);
+    render_cleanup(&mut report, results);
     report.truncate(report.trim_end_matches('\n').len());
     report.push('\n');
     report
+}
+
+fn render_cleanup(report: &mut String, results: &[ModelResult]) {
+    report.push_str(
+        "\n## Schritt 3.2 · Rohtext und bereinigter Text\n\n\
+         Jede vollständige Aufnahme liefert eine ASR-Ausgabe. Der Benchmark bewertet diese einmal direkt \
+         und einmal mit dem lokalen Software-Diktierprofil aus textfx. Dieses vereinheitlicht deutsche \
+         Wortschreibungen und die Wortgrenzen vorgegebener Fachbegriffe. Es verwendet Füllwortentfernung \
+         (Standard), Selbstkorrekturen, Zahlenformatierung \
+         (Ziffern ab 13) und Zeichensetzung. Sprachbefehle sind ausgeschaltet. Beide Ausgaben \
+         werden gegen dieselbe ursprüngliche Korpusreferenz mit der WER aus Schritt 1.5 bewertet. \
+         Ein beabsichtigt entferntes Wort kann deshalb als Auslassung zählen. Großschreibung und \
+         Satzzeichen haben bei dieser Normalisierung keinen Einfluss. Die Golden-Tests prüfen die genaue Schreibweise. \
+         Die Abnahme vergleicht je Modell die ungerundete Anzahl der Wortfehler bei gleicher Referenzwortzahl. \
+         Sie ist bestanden, wenn die Bereinigung gleich viele oder weniger Fehler ergibt.\n\n\
+         | Modell | Referenzwörter | S / D / I roh | WER roh | S / D / I bereinigt | WER bereinigt | Differenz (Prozentpunkte) | Abnahme 3.2 |\n\
+         | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n",
+    );
+    for model in results {
+        let raw = Summary::new(model);
+        let cleaned = model.cleanup.speech_errors;
+        let difference = raw
+            .wer()
+            .zip(cleaned.rate())
+            .map(|(before, after)| (after - before) * 100.0);
+        report.push_str(&format!(
+            "| {} | {} | {} / {} / {} | {} | {} / {} / {} | {} | {} | {} |\n",
+            escape(&model.model_id),
+            raw.reference_words,
+            raw.substitutions,
+            raw.deletions,
+            raw.insertions,
+            percent(raw.wer()),
+            cleaned.substitutions,
+            cleaned.deletions,
+            cleaned.insertions,
+            percent(cleaned.rate()),
+            decimal(difference, 2),
+            if cleanup_passed(model) {
+                "bestanden"
+            } else {
+                "nicht bestanden"
+            },
+        ));
+    }
+    report.push_str(
+        "\nFür Ende→Text und RTF mit Bereinigung wird die separat gemessene Regellaufzeit zur ASR-Laufzeit addiert. \
+         Die Zeiten sind Mittelwerte über alle vollständigen Sprachaufnahmen. Der RTF bezieht die jeweilige \
+         Gesamtzeit auf deren Gesamtaudiodauer. Die Fehlerberechnung erfolgt außerhalb der Zeitmessungen. \
+         Für Stille zählen die Phantomtexte separat.\n\n\
+         | Modell | Aufnahmen Sprache / Stille | Weniger / mehr Wortfehler (Aufnahmen) | Phantomtexte roh / bereinigt | Bereinigung (ms) | Ende→Text roh / bereinigt (ms) | RTF roh / bereinigt |\n\
+         | --- | ---: | ---: | ---: | ---: | ---: | ---: |\n",
+    );
+    for model in results {
+        let raw = Summary::new(model);
+        let cleaned = &model.cleanup;
+        let combined_seconds = raw.speech_latency_seconds + cleaned.speech_cleanup_seconds;
+        let mean_ms =
+            |seconds| (raw.speech_count > 0).then(|| seconds * 1000.0 / raw.speech_count as f64);
+        let rtf =
+            |seconds| (raw.speech_audio_seconds > 0.0).then(|| seconds / raw.speech_audio_seconds);
+        report.push_str(&format!(
+            "| {} | {} / {} | {} / {} | {} / {} | {} | {} / {} | {} / {} |\n",
+            escape(&model.model_id),
+            raw.speech_count,
+            raw.silence_count,
+            cleaned.improved.len(),
+            cleaned.worsened.len(),
+            raw.phantoms,
+            cleaned.phantoms,
+            decimal(mean_ms(cleaned.speech_cleanup_seconds), 3),
+            decimal(mean_ms(raw.speech_latency_seconds), 3),
+            decimal(mean_ms(combined_seconds), 3),
+            decimal(rtf(raw.speech_latency_seconds), 5),
+            decimal(rtf(combined_seconds), 5),
+        ));
+    }
+    report.push_str(
+        "\n| Modell | Aufnahmen mit weniger Wortfehlern | Aufnahmen mit mehr Wortfehlern |\n\
+         | --- | --- | --- |\n",
+    );
+    for model in results {
+        report.push_str(&format!(
+            "| {} | {} | {} |\n",
+            escape(&model.model_id),
+            format_ids(&model.cleanup.improved),
+            format_ids(&model.cleanup.worsened),
+        ));
+    }
 }
 
 const SENTENCES: usize = 20;
@@ -288,6 +378,14 @@ fn qualifies(result: &ModelResult) -> bool {
         && Summary::new(result).wer().is_some()
         && result.probes.iter().any(|probe| probe.empty_outputs == 0)
         && worst_probe_median(result).is_some_and(|seconds| seconds < 1.5)
+}
+
+pub fn cleanup_passed(result: &ModelResult) -> bool {
+    let raw = Summary::new(result);
+    let clean = result.cleanup.speech_errors;
+    raw.reference_words > 0
+        && raw.reference_words == clean.reference_words
+        && clean.total() <= raw.substitutions + raw.deletions + raw.insertions
 }
 
 fn median(mut values: [f64; 3]) -> Option<f64> {
@@ -481,6 +579,34 @@ mod tests {
         assert!(!report.contains("warme vollständige Aufnahmen"));
     }
 
+    #[test]
+    fn cleanup_acceptance_compares_exact_totals_with_identical_nonempty_references() {
+        let mut model = result("testmodell", 40, 0.5);
+        model.samples[0].reference_words = 100_000;
+        model.cleanup.speech_errors.reference_words = 100_000;
+        for (errors, accepted) in [(39, true), (40, true), (41, false)] {
+            model.cleanup.speech_errors.substitutions = errors;
+            assert_eq!(cleanup_passed(&model), accepted);
+            let report = render_report(&context(), std::slice::from_ref(&model));
+            let status = if accepted {
+                "bestanden"
+            } else {
+                "nicht bestanden"
+            };
+            let row = report
+                .lines()
+                .find(|line| line.starts_with("| testmodell | 100000 |"))
+                .unwrap();
+            assert!(row.ends_with(&format!("| {status} |")));
+        }
+        model.cleanup.speech_errors.reference_words -= 1;
+        model.cleanup.speech_errors.substitutions = 0;
+        assert!(!cleanup_passed(&model));
+        model.samples[0].reference_words = 0;
+        model.cleanup.speech_errors.reference_words = 0;
+        assert!(!cleanup_passed(&model));
+    }
+
     fn result(id: &str, errors: usize, latency: f64) -> ModelResult {
         ModelResult {
             model_id: id.into(),
@@ -489,6 +615,7 @@ mod tests {
             warmup_attempts: 1,
             warmup_succeeded: true,
             peak_ram_bytes: 64 * 1024 * 1024,
+            cleanup: Default::default(),
             samples: vec![SampleMetrics {
                 id: 1,
                 audio_seconds: 10.0,
@@ -618,6 +745,7 @@ mod tests {
     #[test]
     fn reports_pooled_wer_weighted_rtf_silence_and_all_numbered_measurements() {
         let mut model = result("test-model", 2, 0.8);
+        model.cleanup.speech_cleanup_seconds = 0.002;
         model.samples.push(SampleMetrics {
             id: 2,
             audio_seconds: 30.0,
@@ -656,6 +784,7 @@ mod tests {
             "Mittelwert: 1,500 s",
             "P95: 3,000 s",
             "Maximum: 3,000 s",
+            "| 1,000 | 2000,000 / 2001,000 | 0,10000 / 0,10005 |",
             "Phantomtexte: 1 von 1",
             "| 001 | Sprache |",
             "| 002 | Sprache |",

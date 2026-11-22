@@ -263,6 +263,7 @@ dependencies = [
  "icu_properties",
  "quatsch-mit-sosse-models",
  "quatsch-mit-sosse-stt",
+ "quatsch-mit-sosse-textfx",
  "serde",
  "serde_json",
  "tempfile",
