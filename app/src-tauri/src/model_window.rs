@@ -406,6 +406,10 @@ fn native_dialog(shared: &Shared, notes: &str, download: &dyn Fn()) -> windows::
 
 pub(super) fn show(app: &AppHandle) -> tauri::Result<()> {
     let preferred = crate::current_settings(app)?.model;
+    show_for(app, preferred)
+}
+
+pub(super) fn show_for(app: &AppHandle, preferred: Option<String>) -> tauri::Result<()> {
     let mut dialogs = DIALOGS.lock().unwrap_or_else(|error| error.into_inner());
     if let Some((_, session)) = dialogs.iter().find(|(key, _)| *key == preferred) {
         let hwnd = session.hwnd.load(Ordering::Acquire);

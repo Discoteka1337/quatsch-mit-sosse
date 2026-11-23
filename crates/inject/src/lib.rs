@@ -47,6 +47,8 @@ pub enum InjectError {
     InvalidConfig,
     #[error("Die Konfigurationsdatei für das Einfügen konnte nicht gelesen werden.")]
     ConfigRead,
+    #[error("Die Datei inject.toml überschreitet die Größenbegrenzung von 1 MiB.")]
+    ConfigTooLarge,
     #[error("Das Vordergrundfenster oder sein Prozess konnte nicht bestimmt werden.")]
     TargetUnavailable,
     #[error("Das Vordergrundfenster oder der Eingabefokus hat gewechselt.")]
@@ -61,12 +63,20 @@ pub enum InjectError {
     DeliveryUncertain,
     #[error("Die Zwischenablage enthält ein Format, das sich nicht verlustfrei sichern lässt.")]
     ClipboardUnsupported,
+    #[error(
+        "Das Einfügen über die Zwischenablage ist in Word und im klassischen Outlook gesperrt, weil Strg+V die vorige Kopie einfügen kann. Nutze die Unicode-Tastatureingabe oder „Kopieren“ im Overlay."
+    )]
+    WordClipboardUnavailable,
     #[error("Während des Einfügens wurde etwas anderes kopiert. Die neuere Kopie bleibt erhalten.")]
     ClipboardChanged,
     #[error(
         "Der ursprüngliche Inhalt der Zwischenablage konnte nicht vollständig wiederhergestellt werden."
     )]
     ClipboardRestore,
+    #[error(
+        "Zwischenablage belegt. Lass die App zur Wiederherstellung geöffnet und prüfe das Einfügeergebnis im Zielfeld."
+    )]
+    ClipboardRecoveryPending,
     #[error("Ein anderer Einfügevorgang läuft bereits.")]
     Busy,
 }
@@ -86,23 +96,51 @@ fn is_long(text: &str) -> bool {
 }
 
 #[cfg(any(windows, test))]
+fn uses_word_editor(exe: &str) -> bool {
+    exe.eq_ignore_ascii_case("winword.exe") || exe.eq_ignore_ascii_case("outlook.exe")
+}
+
+#[cfg(any(windows, test))]
 fn route(
     text: &str,
-    forced: Option<InjectMethod>,
+    config: &InjectConfig,
+    process_name: impl FnOnce() -> Result<String, InjectError>,
     mut attempt: impl FnMut(InjectMethod) -> Result<(), InjectError>,
 ) -> Result<InjectMethod, InjectError> {
     use InjectMethod::{Clipboard, UiAutomation, Unicode};
     validate_text(text)?;
-    let forced = if is_long(text) {
-        Some(Clipboard)
+    // Short automatic UIA/Unicode insertions need no process handle.
+    let process = std::cell::LazyCell::new(process_name);
+    let executable = || process.as_deref().map_err(|&error| error);
+    let configured = if config.apps.is_empty() {
+        None
     } else {
-        forced
+        config.method_for(executable()?)
     };
-    let methods = match &forced {
+    let preferred = if is_long(text) {
+        let exe = executable()?;
+        let method = if uses_word_editor(exe)
+            || exe.eq_ignore_ascii_case("chrome.exe")
+            || exe.eq_ignore_ascii_case("msedge.exe")
+        {
+            configured.unwrap_or(Unicode)
+        } else {
+            Clipboard
+        };
+        Some(method)
+    } else {
+        configured
+    };
+    let methods = match &preferred {
         Some(method) => std::slice::from_ref(method),
         None => &[UiAutomation, Unicode, Clipboard][..],
     };
     for &method in methods {
+        // Office can read CF_UNICODETEXT for a clipboard preview before the
+        // queued Ctrl+V runs. Restoring then pastes the user's previous copy.
+        if method == Clipboard && uses_word_editor(executable()?) {
+            return Err(InjectError::WordClipboardUnavailable);
+        }
         match attempt(method) {
             Ok(()) => return Ok(method),
             Err(InjectError::Unavailable) => continue,

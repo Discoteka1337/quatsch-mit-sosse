@@ -2,7 +2,7 @@
 
 fn main() {
     if quatsch_mit_sosse_app::run().is_err() {
-        eprintln!("{}", quatsch_mit_sosse_app::startup_error());
+        quatsch_mit_sosse_app::report_startup_error();
         std::process::exit(1);
     }
 }

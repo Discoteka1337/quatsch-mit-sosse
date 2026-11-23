@@ -13,6 +13,18 @@
 9. Bei einem Einfügefehler übernimmt **Kopieren** im Overlay den erkannten Text. Füge ihn mit **Strg+V** selbst ein.
 10. Zwischen Diktaten ist das Mikrofon für andere Apps frei. Mit **Beenden** im Tray schließt du die App und verwirfst ihren Textspeicher.
 
+## Änderungen anzeigen und das Original zurückholen
+
+Setze den Cursor in das gewünschte Textfeld und drücke **Strg+Win+F9**. Falls dieses Kürzel belegt ist, findest du die verwendete Kombination unter **Einstellungen → Allgemein**. Neben dem Overlay erscheint das letzte Diktat.
+
+Unter **Vorher** steht der Wortlaut des Erkenners. Bei „Ich möchte, äh, nach Hause“ siehst du das entfernte „äh“ rot und durchgestrichen. Bei aktiver Zeichensetzung steht unter **Nachher** „Ich möchte nach Hause.“ Hinzugefügter Text erscheint grün und unterstrichen. Gelb kennzeichnet Stellen, an denen eine Selbstkorrektur mehrdeutig war.
+
+**Original einfügen** schreibt den Rohtext an den Cursor im vorherigen Fenster. Um den bereinigten Text zu ersetzen, markiere ihn vor dem Öffnen der Ansicht. **Original kopieren** legt den Rohtext in die Zwischenablage. Mit **Esc** schließt du die Ansicht und kannst im vorherigen Fenster weiterschreiben.
+
+Bei langen Vergleichen blätterst du mit **Zurück** und **Weiter**. Beide Original-Aktionen verwenden den gesamten Rohtext. Für einen Ausschnitt markierst du die gewünschte Stelle und drückst **Strg+C** oder wählst **Kopieren** im Kontextmenü. Diese Kopien erhalten die Windows-Schutzkennzeichen für Zwischenablageverlauf und Cloud-Synchronisierung.
+
+Die App hält Rohtext und Endtext jedes erkannten Diktats bis zum Beenden im Arbeitsspeicher. Auch wenn ein Diktat nur aus einem entfernten Füllwort bestand, kannst du das Original zurückholen.
+
 ## Allgemeine Einstellungen
 
 Öffne **Einstellungen** über das Tray-Symbol. Auf der Seite **Allgemein** kannst du folgende Einstellungen ändern.
@@ -26,6 +38,8 @@
 
 Die App speichert deine Auswahl unter `%LOCALAPPDATA%\QuatschMitSosse\data\settings.json`. Beim nächsten Start gelten die zuletzt gespeicherten Einstellungen.
 
+Unter **Deutsche Bereinigung** kannst du Wörterbuch, Selbstkorrekturen, Zahlen, Zeichensetzung und Snippets einzeln schalten. **Sprachbefehle ausführen** ist anfangs aus. Schalte es ein, wenn zum Beispiel „neuer Absatz“ einen Absatz einfügen soll. Bei **Füllwörter entfernen** lässt „Standard“ Wörter wie „also“ und „halt“ stehen. „Stark“ entfernt sie ebenfalls. Unter **Zahlwörter als Ziffern ab** ist 13 voreingestellt. Eine neue Schwelle wird beim Verlassen des Feldes gespeichert.
+
 ## Wörterbuch
 
 Öffne im Tray **Einstellungen** und dann **Wörterbuch**. Unter **Begriff** steht die gewünschte Schreibweise, etwa „Codex“. Trage unter **Gesprochene Varianten** je Zeile eine Form ein, die der Erkenner liefert, etwa „kodex“. Das Feld **Ersetzung (optional)** ist für eine abweichende Ausgabe gedacht. Trägst du beim Begriff „Büro Nord“ die Ersetzung „Projektbüro Nord“ ein, erscheint im Diktat „Projektbüro Nord“.
@@ -34,7 +48,7 @@ Die App speichert deine Auswahl unter `%LOCALAPPDATA%\QuatschMitSosse\data\setti
 
 Die längste passende Variante gewinnt. Ist dieselbe gesprochene Variante bei zwei verschiedenen Schreibweisen hinterlegt, behält das Wörterbuch an dieser Stelle den erkannten Text bei.
 
-**CSV exportieren …** schreibt das gesamte Wörterbuch als UTF-8-Datei. Du kannst diese Datei über **CSV importieren …** wieder einlesen. Für eine eigene Liste genügt eine Spalte mit der Überschrift `term`. Der vollständige Export enthält die Spalten `term,replacement,aliases,source,created_at`. Varianten stehen als JSON-Liste in einem CSV-Feld, der Erstellungszeitpunkt in Unix-Sekunden. Ein vorhandener Begriff wird beim Import aktualisiert. Enthält die Datei einen ungültigen Datensatz, verwirft die App den gesamten Import.
+**CSV exportieren …** schreibt das gesamte Wörterbuch als UTF-8-Datei. Du kannst diese Datei über **CSV importieren …** wieder einlesen. Für eine eigene Liste genügt eine Spalte mit der Überschrift `term`. Der vollständige Export enthält die Spalten `term,replacement,aliases,source,created_at`. Varianten stehen als JSON-Liste in einem CSV-Feld, der Erstellungszeitpunkt in Unix-Sekunden. Wähle für Wörterbuch und Snippets eine Datei auf einem lokalen Laufwerk. Die App weist Netzwerkfreigaben und verbundene Netzlaufwerke beim Import und Export zurück. Ein vorhandener Begriff wird beim Import aktualisiert. Enthält die Datei einen ungültigen Datensatz, verwirft die App den gesamten Import.
 
 Die lokale Datenbank liegt unter `%LOCALAPPDATA%\QuatschMitSosse\data\quatsch-mit-sosse.db`. Vor jeder Änderung der Datenbankstruktur legt die App im Unterordner `backups` eine Sicherung des bisherigen Stands an.
 

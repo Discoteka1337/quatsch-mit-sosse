@@ -23,7 +23,7 @@ pub(crate) struct KeyOutcome {
 }
 
 pub(crate) struct StateMachine {
-    config: HotkeyConfig,
+    pub(crate) config: HotkeyConfig,
     recording: bool,
     // Only modifiers, Escape and the configured triggers enter this table.
     keys: [KeyState; 256],

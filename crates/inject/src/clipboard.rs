@@ -90,23 +90,19 @@ fn set_data(format: CLIPBOARD_FORMAT, handle: HANDLE) -> Result<(), InjectError>
         .map_err(|_| InjectError::Unavailable)
 }
 
-pub(crate) fn paste(target: &Target, text: &str) -> Result<(), InjectError> {
+pub(crate) fn paste(
+    target: &Target,
+    text: &str,
+    on_restore_delay: &dyn Fn(),
+) -> Result<(), InjectError> {
+    // A desktop caller may resume before an earlier snapshot has been restored.
     let _guard = TRANSACTION.try_lock().map_err(|_| InjectError::Busy)?;
-    let owner = OwnerWindow::new(target)?;
+    let owner = OwnerWindow::new(target, on_restore_delay)?;
     temporary_text(
         &owner,
         text,
         || target.check_foreground(),
-        || {
-            owner.arm();
-            let result = keyboard::paste_shortcut(target);
-            if result.is_ok() || matches!(result, Err(InjectError::DeliveryUncertain)) {
-                let read = owner.wait_for_read(target);
-                result?;
-                return read;
-            }
-            result
-        },
+        || owner.send_and_wait(target),
     )
 }
 
@@ -141,6 +137,7 @@ fn temporary_text(
     use_clipboard: impl FnOnce() -> Result<(), InjectError>,
 ) -> Result<(), InjectError> {
     let (replacement, text) = protected_formats(text)?;
+    let privacy_formats: Vec<_> = replacement.iter().map(|entry| entry.format).collect();
     let backup = {
         let _open = clipboard.open(false)?;
         let available = clipboard.formats()?;
@@ -162,7 +159,7 @@ fn temporary_text(
             .try_for_each(|flag| flag.publish(clipboard))
             .and_then(|()| clipboard.offer_text(text));
         if let Err(error) = published {
-            restore(clipboard, backup)?;
+            restore(clipboard, backup, &privacy_formats)?;
             return Err(error);
         }
         backup
@@ -176,17 +173,33 @@ fn temporary_text(
         // Another application copied new data. Preserve the newer copy.
         return Err(InjectError::ClipboardChanged);
     }
-    restore(clipboard, backup)?;
+    restore(clipboard, backup, &privacy_formats)?;
     result
 }
 
-fn restore(clipboard: &impl Clipboard, backup: Vec<OwnedFormat>) -> Result<(), InjectError> {
+fn restore(
+    clipboard: &impl Clipboard,
+    mut backup: Vec<OwnedFormat>,
+    privacy_formats: &[CLIPBOARD_FORMAT],
+) -> Result<(), InjectError> {
     clipboard
         .clear()
         .map_err(|_| InjectError::ClipboardRestore)?;
     let mut result = Ok(());
+    // Preserve the relative priority of all data formats, but restore their
+    // original history/cloud policy before making any payload available.
+    backup.sort_by_key(|entry| !privacy_formats.contains(&entry.format));
     for entry in backup {
-        if entry.publish(clipboard).is_err() {
+        let protected = privacy_formats.contains(&entry.format);
+        let published = entry.publish_with(|format, handle| {
+            clipboard
+                .set(format, handle)
+                .or_else(|_| clipboard.set(format, handle))
+        });
+        if published.is_err() {
+            if protected {
+                return Err(InjectError::ClipboardRestore);
+            }
             result = Err(InjectError::ClipboardRestore);
         }
     }

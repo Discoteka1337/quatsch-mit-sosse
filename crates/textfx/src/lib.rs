@@ -11,7 +11,7 @@ mod tokens;
 
 pub use dictionary::software_dictation_pipeline;
 pub use dictionary_entries::DictionaryEntry;
-pub use snippets::{Snippet, SnippetValue, snippet_trigger_key};
+pub use snippets::{Snippet, SnippetValue, same_snippet_numbers, snippet_trigger_key};
 use std::ops::Range;
 use tokens::Kind;
 
@@ -146,37 +146,20 @@ impl Pipeline {
                 cursor: None,
             };
         }
-        let replace = self.is_enabled(Rule::Dictionary);
-        let mut tokens = if !replace || self.is_enabled(Rule::VoiceCommands) {
-            tokens::tokenize_with_terms(input, &self.proper_names, &self.dictionary, replace)
-        } else {
-            tokens::tokenize(input, &self.proper_names)
-        };
-        for rule in Rule::ORDER {
-            if self.is_enabled(rule) {
-                match rule {
-                    Rule::VoiceCommands => commands::apply(&mut tokens),
-                    Rule::Dictionary => {
-                        dictionary_entries::apply(
-                            &mut tokens,
-                            &self.dictionary,
-                            &self.proper_names,
-                        );
-                        dictionary::apply(&mut tokens, &self.proper_names);
-                        german_spelling::apply(&mut tokens);
-                    }
-                    Rule::FillerWords => fillers::apply(
-                        &mut tokens,
-                        self.filler_strength,
-                        self.is_enabled(Rule::SelfCorrections),
-                    ),
-                    Rule::SelfCorrections => corrections::apply(&mut tokens),
-                    Rule::Numbers => numbers::apply(&mut tokens, self.digits_from),
-                    Rule::Punctuation => punctuation::apply(&mut tokens),
-                    Rule::Snippets => snippets::apply(&mut tokens, &self.snippets, &mut value),
-                    Rule::Style => {}
-                }
-            }
+        let mut tokens = self.cleanup_tokens(input);
+        if self.is_enabled(Rule::Snippets) && !self.snippets.is_empty() {
+            snippets::apply(
+                &mut tokens,
+                &self.snippets,
+                input,
+                |sentence| {
+                    self.cleanup_tokens(sentence)
+                        .into_iter()
+                        .map(|t| t.text)
+                        .collect()
+                },
+                &mut value,
+            );
         }
         if self.primeline_spelling {
             german_spelling::apply_primeline(&mut tokens);
@@ -198,5 +181,48 @@ impl Pipeline {
             uncertain,
             cursor,
         }
+    }
+
+    fn cleanup_tokens(&self, input: &str) -> Vec<tokens::Token> {
+        let replace = self.is_enabled(Rule::Dictionary);
+        let mut tokens = if !replace || self.is_enabled(Rule::VoiceCommands) {
+            tokens::tokenize_with_terms(input, &self.proper_names, &self.dictionary, replace)
+        } else {
+            tokens::tokenize(input, &self.proper_names)
+        };
+        // Keep addresses intact across rules. Punctuation remains visible to
+        // the sentence parser; an explicit dictionary alias may match the whole field.
+        let addresses = tokens::address_parts(&tokens);
+        for (token, in_address) in tokens.iter_mut().zip(addresses) {
+            if in_address && token.kind == Kind::Word {
+                token.kind = Kind::Protected;
+            }
+        }
+        for rule in Rule::ORDER {
+            if self.is_enabled(rule) {
+                match rule {
+                    Rule::VoiceCommands => commands::apply(&mut tokens),
+                    Rule::Dictionary => {
+                        dictionary_entries::apply(
+                            &mut tokens,
+                            &self.dictionary,
+                            &self.proper_names,
+                        );
+                        dictionary::apply(&mut tokens, &self.proper_names);
+                        german_spelling::apply(&mut tokens);
+                    }
+                    Rule::FillerWords => fillers::apply(
+                        &mut tokens,
+                        self.filler_strength,
+                        self.is_enabled(Rule::SelfCorrections),
+                    ),
+                    Rule::SelfCorrections => corrections::apply(&mut tokens),
+                    Rule::Numbers => numbers::apply(&mut tokens, self.digits_from),
+                    Rule::Punctuation => punctuation::apply(&mut tokens),
+                    Rule::Snippets | Rule::Style => {}
+                }
+            }
+        }
+        tokens
     }
 }

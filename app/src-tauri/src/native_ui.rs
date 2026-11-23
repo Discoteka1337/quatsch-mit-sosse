@@ -27,6 +27,7 @@ use windows::{
 
 mod capture;
 mod csv_files;
+mod discovery;
 mod entry_editor;
 mod labels;
 mod layout;
@@ -41,8 +42,11 @@ const FIELD_KEY_DOWN: u32 = WM_APP + 21;
 const FIELD_KEY_UP: u32 = WM_APP + 22;
 const FIELD_BLUR: u32 = WM_APP + 23;
 const FIELD_FOCUS: u32 = WM_APP + 24;
+const PREFERENCES_UPDATED: u32 = WM_APP + 25;
+const COMPARISON_SHORTCUT_UPDATED: u32 = WM_APP + 26;
 const PROBE_TIMER: usize = 0x514d;
 const REMOVE_TIMER: usize = 0x514e;
+const DISCOVERY_TIMER: usize = 0x514f;
 const DICTIONARY_TIMER: usize = 0x5150;
 const SNIPPETS_TIMER: usize = 0x5151;
 
@@ -101,7 +105,7 @@ struct Form {
     capturing: Cell<u16>,
     chord: RefCell<Chord>,
     devices: RefCell<Vec<String>>,
-    model_ids: RefCell<Vec<String>>,
+    models: RefCell<Vec<discovery::ModelChoice>>,
     probe: RefCell<Option<probe::Probe>>,
     removal: RefCell<Option<std::sync::mpsc::Receiver<Result<(), String>>>>,
 }
@@ -161,8 +165,7 @@ fn navigate(parent: HWND, field: Option<HWND>) {
     }
 }
 
-// Only forward key events from shortcut fields to the parent. Its return value
-// indicates whether a recording is active. Other controls keep their native input.
+// Shortcut fields and private edit operations are handled by the parent.
 unsafe extern "system" fn child_proc(
     hwnd: HWND,
     msg: u32,
@@ -175,13 +178,16 @@ unsafe extern "system" fn child_proc(
         unsafe {
             let _ = RemoveWindowSubclass(hwnd, Some(child_proc), id);
         }
+    } else if entry_editor::clipboard::route(hwnd, id as u16, msg, wp, lp) {
+        return LRESULT(isize::from(msg == WM_APPCOMMAND));
     } else if let Ok(parent) = unsafe { GetParent(hwnd) } {
         match msg {
             WM_KEYDOWN | WM_SYSKEYDOWN | WM_KEYUP | WM_SYSKEYUP => {
                 let down = matches!(msg, WM_KEYDOWN | WM_SYSKEYDOWN);
                 if matches!(id as u16, DICTATION | REINSERT) {
                     let event = if down { FIELD_KEY_DOWN } else { FIELD_KEY_UP };
-                    if send(parent, event, id, wp.0 as isize).0 != 0 {
+                    let key = capture::virtual_key(wp.0 as u32, lp.0);
+                    if send(parent, event, id, key as isize).0 != 0 {
                         return LRESULT(0);
                     }
                 }
@@ -223,6 +229,20 @@ unsafe extern "system" fn settings_proc(
             drop(Rc::from_raw(ptr));
         },
         WM_DESTROY => form.detach(),
+        entry_editor::clipboard::REQUEST => {
+            entry_editor::clipboard::respond(&form, wp, lp);
+            return LRESULT(0);
+        }
+        COMPARISON_SHORTCUT_UPDATED => {
+            form.comparison_shortcut();
+            return LRESULT(0);
+        }
+        PREFERENCES_UPDATED => {
+            if let Err(error) = form.show_preferences() {
+                form.error(error);
+            }
+            return LRESULT(0);
+        }
         WM_SIZE | WM_DPICHANGED => {
             let _ = layout::layout(&form);
         }
@@ -231,7 +251,7 @@ unsafe extern "system" fn settings_proc(
                 form.error(error);
             }
         }
-        WM_SHOWWINDOW if wp.0 != 0 && form.model_ids.borrow().is_empty() => {
+        WM_SHOWWINDOW if wp.0 != 0 && form.models.borrow().is_empty() => {
             if let Err(error) = form.refresh() {
                 form.error(error);
             }
@@ -311,6 +331,12 @@ unsafe extern "system" fn settings_proc(
             }
             return LRESULT(0);
         }
+        WM_TIMER if wp.0 == DISCOVERY_TIMER => {
+            if let Err(error) = form.poll_discovery() {
+                form.error(error);
+            }
+            return LRESULT(0);
+        }
         WM_MOUSEWHEEL => {
             let delta = (wp.0 >> 16) as i16;
             form.scroll_by(-i32::from(delta) * scale(48, form.dpi.get()) / 120);
@@ -325,7 +351,7 @@ unsafe extern "system" fn settings_proc(
                 SB_PAGEUP => -page,
                 SB_PAGEDOWN => page,
                 SB_TOP => -form.scroll.get(),
-                SB_BOTTOM => scale(CONTENT_HEIGHT, form.dpi.get()),
+                SB_BOTTOM => scale(content_height(true), form.dpi.get()),
                 SB_THUMBPOSITION | SB_THUMBTRACK => {
                     ((wp.0 >> 16) as u16) as i32 - form.scroll.get()
                 }
@@ -337,6 +363,44 @@ unsafe extern "system" fn settings_proc(
         _ => {}
     }
     unsafe { DefSubclassProc(hwnd, msg, wp, lp) }
+}
+
+// The device driver may still be busy when the settings window closes.
+// Keep its single pending scan across window destruction and reopening.
+pub(super) type InventoryScan = std::sync::Mutex<discovery::Inventory>;
+
+pub(super) fn comparison_shortcut_changed(app: &AppHandle) {
+    if let Some(hwnd) = app
+        .get_window("settings")
+        .and_then(|window| window.hwnd().ok())
+    {
+        unsafe {
+            let _ = PostMessageW(
+                Some(hwnd),
+                COMPARISON_SHORTCUT_UPDATED,
+                WPARAM(0),
+                LPARAM(0),
+            );
+        }
+    }
+}
+
+pub(super) fn preferences_failed(app: &AppHandle, message: String) {
+    // Successful edits are already displayed. Redrawing a combo here could
+    // replace a later selection before its CBN_SELCHANGE reaches the parent.
+    let window = app.get_window("settings").and_then(|w| w.hwnd().ok());
+    if let Some(hwnd) = window {
+        send(hwnd, PREFERENCES_UPDATED, 0, 0);
+    }
+    let text = format!("{} {message}", LABELS.general_failure);
+    if let Some(hwnd) = window
+        && unsafe { IsWindowVisible(hwnd) }.as_bool()
+        && let Ok(status) = unsafe { GetDlgItem(Some(hwnd), i32::from(STATUS)) }
+        && unsafe { SetWindowTextW(status, &HSTRING::from(&text)) }.is_ok()
+    {
+        return;
+    }
+    crate::dictation::report_error(app, text);
 }
 
 pub(super) fn attach(window: &Window) -> tauri::Result<()> {
@@ -435,7 +499,7 @@ pub(super) fn attach(window: &Window) -> tauri::Result<()> {
         capturing: Cell::default(),
         chord: RefCell::default(),
         devices: RefCell::default(),
-        model_ids: RefCell::default(),
+        models: RefCell::default(),
         probe: RefCell::default(),
         removal: RefCell::default(),
     });

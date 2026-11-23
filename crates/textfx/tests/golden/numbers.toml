@@ -527,3 +527,21 @@ name = "Zwei Jahresangaben werden nicht verkettet"
 input = "vom ersten zweiten zweitausenddreißig bis zweitausendeinunddreißig"
 rules = ["numbers"]
 expected = "vom 01.02.2030 bis 2031"
+
+[[case]]
+name = "Aufsteigende benachbarte Mengen bleiben getrennte Beträge"
+input = "zwei Millionen drei Milliarden"
+rules = ["numbers"]
+expected = "2000000 3000000000"
+
+[[case]]
+name = "Wiederholung derselben Mengeneinheit beginnt einen neuen Betrag"
+input = "zwei Millionen drei Millionen"
+rules = ["numbers"]
+expected = "2000000 3000000"
+
+[[case]]
+name = "Absteigende benachbarte Mengeneinheiten bilden einen Betrag"
+input = "zwei Milliarden drei Millionen vierhundert"
+rules = ["numbers"]
+expected = "2003000400"

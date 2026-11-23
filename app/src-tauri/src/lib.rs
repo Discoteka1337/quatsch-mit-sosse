@@ -8,6 +8,9 @@ use tauri::{
 };
 
 mod benchmark;
+mod comparison;
+mod comparison_window;
+mod config_file;
 mod dictation;
 mod effects;
 mod input;
@@ -38,6 +41,9 @@ struct Messages {
     settings: String,
     reinsert: String,
     no_last_text: String,
+    no_comparison: String,
+    comparison_open_error: String,
+    original_busy: String,
     target_unavailable: String,
     no_speech: String,
     shortcut_error: String,
@@ -46,6 +52,7 @@ struct Messages {
     quit: String,
     settings_open_error: String,
     startup_error: String,
+    startup_settings_error: String,
     overlay_show_ready: String,
     overlay_hide_from_capture: String,
     overlay_listening: String,
@@ -67,8 +74,29 @@ fn messages() -> &'static Messages {
     &MESSAGES
 }
 
+fn local_error(message: &str) {
+    use windows::{
+        Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW},
+        core::HSTRING,
+    };
+    unsafe {
+        MessageBoxW(
+            None,
+            &HSTRING::from(message),
+            &HSTRING::from(&messages().app_name),
+            MB_OK | MB_ICONERROR,
+        );
+    }
+}
+
 pub fn startup_error() -> &'static str {
     &messages().startup_error
+}
+
+pub fn report_startup_error() {
+    if std::env::var_os("QMS_BENCHMARK_LOG").is_none() {
+        local_error(startup_error());
+    }
 }
 
 fn show_settings(app: &AppHandle) -> tauri::Result<()> {
@@ -137,27 +165,113 @@ fn show_settings_using<R: Runtime>(
 fn request_settings(app: &AppHandle) {
     static OPEN_LOCK: Mutex<()> = Mutex::new(());
     let gate = app.state::<Mutex<settings_gate::SettingsGate>>();
-    let start = match gate.lock() {
-        Ok(mut gate) => gate.request(),
-        Err(_) => {
-            eprintln!("{}", messages().settings_open_error);
-            return;
-        }
-    };
+    let start = gate.lock().unwrap_or_else(|e| e.into_inner()).request();
     if !start {
         return;
     }
     let app = app.clone();
     // Serialize creation on a worker; native control initialization is dispatched to main.
     tauri::async_runtime::spawn_blocking(move || {
-        let Ok(_guard) = OPEN_LOCK.lock() else {
-            eprintln!("{}", messages().settings_open_error);
-            return;
+        let opened = {
+            let _guard = OPEN_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            show_settings(&app)
         };
-        if show_settings(&app).is_err() {
-            eprintln!("{}", messages().settings_open_error);
-        }
+        report_settings_result(opened, local_error);
     });
+}
+
+fn report_settings_result(result: tauri::Result<()>, report: impl FnOnce(&str)) {
+    if result.is_err() {
+        report(&messages().settings_open_error);
+    }
+}
+
+struct FailedStartup;
+
+fn failed_startup(app: AppHandle, is_benchmark: bool, reason: &str) {
+    // Only the primary instance reaches setup. A running controller owns the mixer.
+    let controller_started = app.try_state::<dictation::Controller>().is_some();
+    let mut message = reason.to_owned();
+    if !controller_started
+        && let Ok(dir) = settings::data_dir()
+        && let Err(reason) = effects::Effects::new(dir).recover()
+    {
+        message.push(' ');
+        message.push_str(&reason);
+    }
+    if !is_benchmark {
+        local_error(&message);
+    }
+    if controller_started {
+        preferences::quit(&app, 1);
+    } else {
+        app.exit(1);
+    }
+}
+
+fn initialize(
+    app: &mut tauri::App,
+    benchmark: Option<benchmark::BenchmarkConfig>,
+    store: settings::SettingsStore,
+) -> tauri::Result<()> {
+    let is_benchmark = benchmark.is_some();
+    app.manage(std::thread::current().id());
+    app.manage(native_ui::InventoryScan::default());
+    let config = store.current().hotkeys()?;
+    app.manage(overlay::Controller::open(store.current().overlay)?);
+    app.manage(preferences::Writer::start(store)?);
+    let text = messages();
+    let settings = MenuItem::with_id(app, "settings", &text.settings, true, None::<&str>)?;
+    let reinsert = MenuItem::with_id(app, "reinsert", &text.reinsert, true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", &text.quit, true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&reinsert, &settings, &quit])?;
+    TrayIconBuilder::with_id("main")
+        .icon(
+            app.default_window_icon()
+                .expect("The app icon must exist")
+                .clone(),
+        )
+        .tooltip(&text.app_name)
+        .menu(&menu)
+        .show_menu_on_left_click(true)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "settings" => request_settings(app),
+            "reinsert" => {
+                if let Some(shortcuts) = app.try_state::<input::Shortcuts>() {
+                    shortcuts.reinsert_from_tray();
+                } else {
+                    dictation::report_error(app, messages().shortcut_error.clone());
+                }
+            }
+            "quit" if app.try_state::<dictation::Controller>().is_some() => {
+                preferences::quit(app, 0)
+            }
+            _ => {}
+        })
+        .build(app)?;
+    for label in ["settings", "overlay"] {
+        create_app_window(app.handle(), label)?;
+    }
+    let controller = dictation::Controller::start(app.handle())?;
+    let dispatch = controller.input_handler();
+    app.manage(controller);
+    if !is_benchmark {
+        preferences::repair_login(app.handle())?;
+    }
+    match input::Shortcuts::start(config, dispatch) {
+        Ok(shortcuts) => {
+            app.manage(shortcuts);
+        }
+        Err(error) if is_benchmark => return Err(error.into()),
+        Err(_) => dictation::report_error(app.handle(), messages().shortcut_error.clone()),
+    }
+    if let Some(config) = benchmark {
+        let handle = app.handle().clone();
+        benchmark::start_stop_listener(config.stop_event, move |code| {
+            preferences::quit(&handle, code)
+        })?;
+    }
+    Ok(())
 }
 
 pub fn run() -> tauri::Result<()> {
@@ -181,56 +295,16 @@ pub fn run() -> tauri::Result<()> {
             }
         }))
         .setup(move |app| {
-            app.manage(std::thread::current().id());
-            let store = settings::SettingsStore::open()?;
-            let config = store.current().hotkeys()?;
-            app.manage(overlay::Controller::open(store.current().overlay)?);
-            app.manage(Mutex::new(store));
-            let text = messages();
-            let settings = MenuItem::with_id(app, "settings", &text.settings, true, None::<&str>)?;
-            let reinsert = MenuItem::with_id(app, "reinsert", &text.reinsert, true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", &text.quit, true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&reinsert, &settings, &quit])?;
-            TrayIconBuilder::with_id("main")
-                .icon(
-                    app.default_window_icon()
-                        .expect("The app icon must exist")
-                        .clone(),
-                )
-                .tooltip(&text.app_name)
-                .menu(&menu)
-                .show_menu_on_left_click(true)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "settings" => request_settings(app),
-                    "reinsert" => {
-                        if let Some(shortcuts) = app.try_state::<input::Shortcuts>() {
-                            shortcuts.reinsert_from_tray();
-                        } else {
-                            dictation::report_error(app, messages().shortcut_error.clone());
-                        }
-                    }
-                    "quit" => app.state::<dictation::Controller>().quit(app, 0),
-                    _ => {}
-                })
-                .build(app)?;
-            for label in ["settings", "overlay"] {
-                create_app_window(app.handle(), label)?;
-            }
-            let controller = dictation::Controller::start(app.handle())?;
-            let dispatch = controller.input_handler();
-            app.manage(controller);
-            match input::Shortcuts::start(config, dispatch) {
-                Ok(shortcuts) => {
-                    app.manage(shortcuts);
-                }
-                Err(error) if is_benchmark => return Err(error.into()),
-                Err(_) => dictation::report_error(app.handle(), messages().shortcut_error.clone()),
-            }
-            if let Some(config) = benchmark {
+            let result = settings::SettingsStore::open()
+                .map_err(|_| messages().startup_settings_error.as_str())
+                .and_then(|store| initialize(app, benchmark, store).map_err(|_| startup_error()));
+            if let Err(message) = result {
+                // Returning the error to Tauri would panic and print configuration data.
+                app.manage(FailedStartup);
                 let handle = app.handle().clone();
-                benchmark::start_stop_listener(config.stop_event, move |code| {
-                    handle.state::<dictation::Controller>().quit(&handle, code)
-                })?;
+                tauri::async_runtime::spawn_blocking(move || {
+                    failed_startup(handle, is_benchmark, message)
+                });
             }
             Ok(())
         })
@@ -238,7 +312,7 @@ pub fn run() -> tauri::Result<()> {
 
     // Keep the tray process alive while allowing windows and webviews to be destroyed.
     app.run(move |app, event| {
-        if matches!(event, RunEvent::Ready) {
+        if matches!(event, RunEvent::Ready) && app.try_state::<FailedStartup>().is_none() {
             let pending = app
                 .state::<Mutex<settings_gate::SettingsGate>>()
                 .lock()
@@ -251,7 +325,7 @@ pub fn run() -> tauri::Result<()> {
                 && ready_signal.emit().is_err()
                 && is_benchmark
             {
-                app.state::<dictation::Controller>().quit(app, 1);
+                preferences::quit(app, 1);
             }
         }
         if let RunEvent::ExitRequested {

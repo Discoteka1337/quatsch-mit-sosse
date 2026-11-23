@@ -134,8 +134,8 @@ impl<T: Send + 'static> IdleModel<T> {
         use_model(usage.state.model.as_mut().expect("model loaded above"))
     }
 
-    pub(crate) fn is_loaded(&self) -> bool {
-        self.shared.lock().model.is_some()
+    pub(crate) fn is_loaded(&self, ready: impl FnOnce(&T) -> bool) -> bool {
+        self.shared.lock().model.as_ref().is_some_and(ready)
     }
 }
 
@@ -174,7 +174,7 @@ mod tests {
     fn construction_is_lazy_and_repeated_use_reuses_the_model() {
         let loads = AtomicUsize::new(0);
         let cache = IdleModel::new(Duration::from_secs(300)).unwrap();
-        assert!(!cache.is_loaded());
+        assert!(!cache.is_loaded(|_| true));
         for expected in 1..=2 {
             let result: Result<usize, ()> = cache.with(
                 || {
@@ -188,7 +188,7 @@ mod tests {
             );
             assert_eq!(result, Ok(expected));
         }
-        assert!(cache.is_loaded());
+        assert!(cache.is_loaded(|_| true));
         assert_eq!(loads.load(Ordering::SeqCst), 1);
     }
 
@@ -197,7 +197,7 @@ mod tests {
         let cache = IdleModel::new(Duration::from_secs(300)).unwrap();
         let failed: Result<(), &str> = cache.with(|| Err("load"), |_: &mut usize| Ok(()));
         assert_eq!(failed, Err("load"));
-        assert!(!cache.is_loaded());
+        assert!(!cache.is_loaded(|_| true));
         let retried: Result<usize, &str> = cache.with(|| Ok(7), |model| Ok(*model));
         assert_eq!(retried, Ok(7));
     }
@@ -228,7 +228,7 @@ mod tests {
         let result: Result<(), &str> =
             cache.with(|| Ok(Tracked(Arc::clone(&dropped))), |_| Err("inference"));
         assert_eq!(result, Err("inference"));
-        assert!(!cache.is_loaded());
+        assert!(!cache.is_loaded(|_| true));
         assert_eq!(dropped.load(Ordering::SeqCst), 1);
     }
 
@@ -245,7 +245,7 @@ mod tests {
         let result: Result<(), ()> = cache.with(|| Ok(SignalDrop(sender)), |_| Ok(()));
         assert!(result.is_ok());
         receiver.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(!cache.is_loaded());
+        assert!(!cache.is_loaded(|_| true));
     }
 
     #[test]

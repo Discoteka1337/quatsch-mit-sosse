@@ -27,6 +27,45 @@ fn writes_canonical_case_for_terms_and_whole_spoken_forms() {
 }
 
 #[test]
+fn address_parts_never_expand_as_aliases_but_a_whole_registered_address_can() {
+    let mut rules = Pipeline::new([Rule::Dictionary]);
+    rules.dictionary = vec![
+        entry("Werkzeug", None, &["kodex"]),
+        entry("Postfach", None, &["brief@example.test"]),
+    ];
+    assert_eq!(
+        rules.apply(
+            "kodex+post@example.test, https://host/k=k+kOdex%20neu und kodex+tag.firma. kodex!"
+        ),
+        "kodex+post@example.test, https://host/k=k+kOdex%20neu und kodex+tag.firma. Werkzeug!"
+    );
+    assert_eq!(rules.apply("„brief@example.test“!"), "„Postfach“!");
+    assert_eq!(
+        rules.apply("brief@example.test+extra"),
+        "brief@example.test+extra"
+    );
+}
+
+#[test]
+fn dictionary_aliases_preserve_existing_numeric_literals_and_their_spelling() {
+    let mut rules = Pipeline::new([Rule::Dictionary]);
+    rules.dictionary = vec![
+        entry("zwölf", None, &["12"]),
+        entry("Kennung 99", None, &["Kennung 0099"]),
+        entry("Preis", None, &["2,25 Euro"]),
+        entry("Halle 12", None, &["halle zwölf"]),
+    ];
+    assert_eq!(
+        rules.apply("12 Kennung 0099 für 2,25 Euro"),
+        "12 Kennung 0099 für 2,25 Euro"
+    );
+    assert_eq!(
+        rules.apply("halle 12 und halle zwölf"),
+        "Halle 12 und Halle 12"
+    );
+}
+
+#[test]
 fn honors_the_longest_phrase_and_does_not_chain_or_reformat_replacements() {
     let mut rules = Pipeline::new([Rule::Dictionary, Rule::FillerWords, Rule::Punctuation]);
     rules.dictionary = vec![

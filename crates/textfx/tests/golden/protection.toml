@@ -204,3 +204,15 @@ name = "Das Komma einer verkürzten Dezimalzahl bleibt nach einer Klammer erhalt
 input = "Das Ergebnis (ähm ,07) zählt."
 rules = ["filler_words"]
 expected = "Das Ergebnis (,07) zählt."
+
+[[case]]
+name = "Füllwort als Teil einer Mailadresse oder URL bleibt wörtlich"
+input = "Schreib an info@hm.de und hm+abo@example.org. Öffne hm.de oder https://hm.de/berichte/hm. Dann, hm, weiter."
+rules = ["dictionary", "filler_words", "self_corrections", "snippets"]
+expected = "Schreib an info@hm.de und hm+abo@example.org. Öffne hm.de oder https://hm.de/berichte/hm. Dann weiter."
+
+[[case]]
+name = "Sprechpausen vor Satzzeichen bleiben Füllwörter"
+input = "Das geht hm? Ja, ähm. Dann (hm, weiter)!"
+rules = ["dictionary", "filler_words", "self_corrections", "snippets"]
+expected = "Das geht? Ja. Dann (weiter)!"

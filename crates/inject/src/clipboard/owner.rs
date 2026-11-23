@@ -33,6 +33,17 @@ struct RenderState {
 }
 
 impl RenderState {
+    fn during_paste(
+        &self,
+        paste: impl FnOnce() -> Result<(), InjectError>,
+    ) -> Result<(), InjectError> {
+        self.armed.set(true);
+        let result = paste();
+        self.armed.set(false);
+        self.text.take();
+        result
+    }
+
     fn render_for(
         &self,
         owner: HWND,
@@ -43,7 +54,8 @@ impl RenderState {
         if !self.armed.get()
             || owner != self.owner.get()
             || foreground != self.target.get()
-            || reader_pid.is_some_and(|pid| pid == 0 || pid != self.pid.get())
+            || self.pid.get() == 0
+            || reader_pid != Some(self.pid.get())
         {
             return;
         }
@@ -55,12 +67,16 @@ impl RenderState {
 
 thread_local! { static RENDER: RenderState = RenderState::default(); }
 
-pub(super) struct OwnerWindow {
+pub(super) struct OwnerWindow<'a> {
     hwnd: HWND,
+    on_restore_delay: &'a dyn Fn(),
 }
 
-impl OwnerWindow {
-    pub(super) fn new(target: &Target) -> Result<Self, InjectError> {
+impl<'a> OwnerWindow<'a> {
+    pub(super) fn new(
+        target: &Target,
+        on_restore_delay: &'a dyn Fn(),
+    ) -> Result<Self, InjectError> {
         const CLASS: windows::core::PCWSTR = w!("QuatschMitSosse.Inject.Clipboard");
         static REGISTERED: OnceLock<bool> = OnceLock::new();
         let instance = unsafe { GetModuleHandleW(None) }
@@ -102,11 +118,24 @@ impl OwnerWindow {
             state.pid.set(pid);
             state.rendered.set(false);
         });
-        Ok(Self { hwnd })
+        Ok(Self {
+            hwnd,
+            on_restore_delay,
+        })
     }
 
-    pub(super) fn arm(&self) {
-        RENDER.with(|state| state.armed.set(true));
+    pub(super) fn send_and_wait(&self, target: &Target) -> Result<(), InjectError> {
+        RENDER.with(|state| {
+            state.during_paste(|| {
+                let sent = super::keyboard::paste_shortcut(target);
+                if sent.is_ok() || matches!(sent, Err(InjectError::DeliveryUncertain)) {
+                    let read = self.wait_for_read(target);
+                    sent?;
+                    return read;
+                }
+                sent
+            })
+        })
     }
 
     fn pump(&self) {
@@ -152,8 +181,7 @@ fn await_read(
 unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
         WM_RENDERFORMAT if wp.0 == usize::from(CF_UNICODETEXT.0) => {
-            // Some readers use OpenClipboard(NULL). Check the reader's process
-            // whenever Windows identified its window, and always check the foreground.
+            // A foreground match alone does not identify an anonymous clipboard reader.
             let reader_pid = unsafe { GetOpenClipboardWindow() }.ok().map(|reader| {
                 let mut pid = 0;
                 unsafe { GetWindowThreadProcessId(reader, Some(&mut pid)) };
@@ -180,7 +208,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
     }
 }
 
-impl Drop for OwnerWindow {
+impl Drop for OwnerWindow<'_> {
     fn drop(&mut self) {
         RENDER.with(|state| {
             state.armed.set(false);
@@ -207,11 +235,12 @@ impl Drop for ClipboardLock {
     }
 }
 
-impl Clipboard for OwnerWindow {
+impl Clipboard for OwnerWindow<'_> {
     type Lock = ClipboardLock;
 
     fn open(&self, restoring: bool) -> Result<Self::Lock, InjectError> {
         let deadline = Instant::now() + Duration::from_secs(1);
+        let mut notify = Some(self.on_restore_delay);
         loop {
             if let Ok(lock) = ClipboardLock::open(self.hwnd) {
                 return Ok(lock);
@@ -221,6 +250,11 @@ impl Clipboard for OwnerWindow {
                 // a transient lock could leave dictated text on the clipboard.
                 if !self.owns_contents() {
                     return Err(InjectError::ClipboardChanged);
+                }
+                if Instant::now() >= deadline
+                    && let Some(notify) = notify.take()
+                {
+                    notify();
                 }
             } else if Instant::now() >= deadline {
                 return Err(InjectError::Unavailable);
@@ -297,6 +331,7 @@ mod tests {
         ));
         state.render_for(owner, target, Some(42), |_| panic!());
         state.armed.set(true);
+        state.render_for(owner, target, None, |_| panic!("unidentified reader"));
         state.render_for(owner, target, Some(17), |_| panic!());
         state.render_for(owner, owner, Some(42), |_| panic!());
         assert!(!state.rendered.get());
@@ -304,6 +339,22 @@ mod tests {
         assert!(state.rendered.get());
         assert!(state.text.take().is_none());
         state.render_for(owner, target, Some(42), |_| panic!());
+    }
+
+    #[test]
+    fn a_failed_paste_withdraws_the_offer_before_waiting_for_a_busy_clipboard() {
+        let state = RenderState::default();
+        state.pid.set(42);
+        state.text.set(Some(
+            OwnedFormat::from_bytes(CF_UNICODETEXT, &[0, 0]).unwrap(),
+        ));
+        let result = state.during_paste(|| {
+            assert!(state.armed.get());
+            Err(InjectError::DeliveryUncertain)
+        });
+        assert_eq!(result, Err(InjectError::DeliveryUncertain));
+        state.render_for(HWND::default(), HWND::default(), Some(42), |_| panic!());
+        assert!(state.text.take().is_none());
     }
 
     #[test]

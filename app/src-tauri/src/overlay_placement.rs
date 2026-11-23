@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     fs, io,
-    path::{Path, PathBuf},
+    path::Path,
+    sync::{Arc, Mutex, mpsc},
+    thread,
 };
 
 mod monitors;
@@ -117,9 +119,16 @@ impl SavedOverlay {
     }
 }
 
+type WriteResult = Box<dyn FnOnce(io::Result<()>) + Send>;
+
+enum Write {
+    Save(Arc<SavedOverlay>, WriteResult),
+    Flush(mpsc::Sender<()>),
+}
+
 pub(crate) struct OverlayStore {
-    path: PathBuf,
-    saved: SavedOverlay,
+    current: Arc<Mutex<Arc<SavedOverlay>>>,
+    writer: mpsc::Sender<Write>,
 }
 
 impl OverlayStore {
@@ -128,49 +137,110 @@ impl OverlayStore {
     }
 
     fn load(path: &Path) -> io::Result<Self> {
-        let saved = match fs::read(path) {
+        let saved = match crate::config_file::read(path) {
             Ok(bytes) => serde_json::from_slice(&bytes).map_err(io::Error::from)?,
             Err(err) if err.kind() == io::ErrorKind::NotFound => SavedOverlay::default(),
             Err(err) => return Err(err),
         };
-        Ok(Self {
-            path: path.into(),
-            saved,
-        })
+        let path = path.to_owned();
+        Self::with_writer(saved, move |next| persist(&path, next))
+    }
+
+    fn with_writer(
+        saved: SavedOverlay,
+        mut persist: impl FnMut(&SavedOverlay) -> io::Result<()> + Send + 'static,
+    ) -> io::Result<Self> {
+        let mut committed = Arc::new(saved);
+        let current = Arc::new(Mutex::new(committed.clone()));
+        let latest = current.clone();
+        let (writer, requests) = mpsc::channel();
+        thread::Builder::new()
+            .name("qms-overlay-position".into())
+            .spawn(move || {
+                for request in requests {
+                    match request {
+                        Write::Save(next, done) => {
+                            let result = persist(&next);
+                            if result.is_ok() {
+                                committed = next;
+                            } else {
+                                let mut current = latest.lock().unwrap_or_else(|e| e.into_inner());
+                                // Only roll back this drag if no later drag has superseded it.
+                                if Arc::ptr_eq(&current, &next) {
+                                    *current = committed.clone();
+                                }
+                            }
+                            done(result);
+                        }
+                        Write::Flush(done) => {
+                            let _ = done.send(());
+                        }
+                    }
+                }
+            })?;
+        Ok(Self { current, writer })
+    }
+
+    fn snapshot(&self) -> Arc<SavedOverlay> {
+        self.current
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    pub(super) fn pending_writes(&self) -> io::Result<mpsc::Receiver<()>> {
+        let (done, completion) = mpsc::channel();
+        self.writer
+            .send(Write::Flush(done))
+            .map_err(|_| io::Error::other("Overlay writer stopped"))?;
+        Ok(completion)
     }
 
     pub fn placement(&self, width_dip: i32, height_dip: i32) -> io::Result<Bounds> {
-        self.saved
+        self.snapshot()
             .restored(&monitors::connected()?, width_dip, height_dip)
             .ok_or_else(|| io::Error::other("No monitor work area available"))
     }
 
-    pub fn remember(&mut self, bounds: Bounds) -> io::Result<()> {
-        self.remember_on(&monitors::connected()?, bounds)
+    pub fn remember(
+        &mut self,
+        bounds: Bounds,
+        done: impl FnOnce(io::Result<()>) + Send + 'static,
+    ) -> io::Result<()> {
+        self.remember_on(&monitors::connected()?, bounds, done)
     }
 
-    fn remember_on(&mut self, monitors: &[Monitor], bounds: Bounds) -> io::Result<()> {
-        self.update(|next| next.record(monitors, bounds))
-    }
-
-    fn update(&mut self, change: impl FnOnce(&mut SavedOverlay)) -> io::Result<()> {
-        let mut next = self.saved.clone();
-        change(&mut next);
-        if next == self.saved {
+    fn remember_on(
+        &mut self,
+        monitors: &[Monitor],
+        bounds: Bounds,
+        done: impl FnOnce(io::Result<()>) + Send + 'static,
+    ) -> io::Result<()> {
+        let mut current = self.current.lock().unwrap_or_else(|e| e.into_inner());
+        let mut next = (**current).clone();
+        next.record(monitors, bounds);
+        if next == **current {
             return Ok(());
         }
-        let parent = self
-            .path
-            .parent()
-            .ok_or_else(|| io::Error::other("Missing data directory"))?;
-        fs::create_dir_all(parent)?;
-        let mut file = tempfile::NamedTempFile::new_in(parent)?;
-        serde_json::to_writer_pretty(file.as_file_mut(), &next)?;
-        file.as_file().sync_all()?;
-        file.persist(&self.path)?;
-        self.saved = next;
+        let next = Arc::new(next);
+        self.writer
+            .send(Write::Save(next.clone(), Box::new(done)))
+            .map_err(|_| io::Error::other("Overlay writer stopped"))?;
+        *current = next;
         Ok(())
     }
+}
+
+fn persist(path: &Path, next: &SavedOverlay) -> io::Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| io::Error::other("Missing data directory"))?;
+    fs::create_dir_all(parent)?;
+    let mut file = tempfile::NamedTempFile::new_in(parent)?;
+    serde_json::to_writer_pretty(file.as_file_mut(), next)?;
+    crate::config_file::sync(file.as_file())?;
+    file.persist(path)?;
+    Ok(())
 }
 
 #[cfg(test)]

@@ -16,9 +16,16 @@ coverage/
 
 # Private test data and models
 /testdata/private/
+*.wav
+!/testdata/public/*.wav
 *.onnx
+*.onnx.data
 *.gguf
 *.bin
+sherpa-onnx-nemo-parakeet-*.tar.bz2
+sherpa-onnx-whisper-*.tar.bz2
+tokens.txt
+turbo-tokens.txt
 models/
 !/crates/models/
 

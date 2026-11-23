@@ -74,6 +74,7 @@ fn native_texts_come_from_the_shared_german_catalog() {
         let locale: Messages = serde_json::from_str(source).unwrap();
         assert!(!locale.settings_open_error.is_empty());
         assert!(!locale.startup_error.is_empty());
+        assert!(locale.startup_settings_error.contains("settings.json"));
         assert!(!locale.overlay_show_ready.is_empty());
         assert!(!locale.overlay_hide_from_capture.is_empty());
         assert!(!locale.overlay_copy_error.is_empty());
@@ -101,6 +102,26 @@ fn missing_settings_are_created_and_reused_without_duplicates() {
     show_settings_using(app.handle(), || panic!("Existing settings must be reused")).unwrap();
     assert_eq!(app.windows().len(), 1);
     assert!(app.webview_windows().is_empty());
+}
+
+#[test]
+fn a_failed_settings_open_reports_only_the_localized_message_and_can_be_retried() {
+    let mut context = mock_context(noop_assets());
+    *context.config_mut() = config();
+    let app = mock_builder().build(context).unwrap();
+    let failed = show_settings_using(app.handle(), || {
+        Err(std::io::Error::other("private-test-fixture").into())
+    });
+    let mut shown = None;
+    report_settings_result(failed, |message| shown = Some(message.to_owned()));
+    assert_eq!(
+        shown.as_deref(),
+        Some(messages().settings_open_error.as_str())
+    );
+    let retry = show_settings_using(app.handle(), || {
+        create_native_window(app.handle(), "settings")
+    });
+    report_settings_result(retry, |_| panic!("unexpected second error"));
 }
 
 #[test]

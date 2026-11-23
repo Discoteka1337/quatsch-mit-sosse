@@ -1,11 +1,11 @@
 use crate::integrity::IntegrityLevel;
 use crate::machine::StateMachine;
-use crate::{HotkeyConfig, HotkeyEvent};
+use crate::{Hotkey, HotkeyConfig, HotkeyEvent};
 use std::cell::RefCell;
 use std::io;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::thread::{self, JoinHandle};
 use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, LRESULT, WAIT_OBJECT_0, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -16,15 +16,18 @@ use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, EVENT_SYSTEM_FOREGROUND, GetForegroundWindow, HC_ACTION,
     KBDLLHOOKSTRUCT, LLKHF_INJECTED, LLKHF_LOWER_IL_INJECTED, MSG, MWMO_INPUTAVAILABLE,
     MsgWaitForMultipleObjectsEx, PM_REMOVE, PeekMessageW, QS_ALLINPUT, SetWindowsHookExW,
-    WH_KEYBOARD_LL, WINEVENT_OUTOFCONTEXT, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN,
+    WH_KEYBOARD_LL, WINEVENT_OUTOFCONTEXT, WM_HOTKEY, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN,
     WM_SYSKEYUP,
 };
 use windows::core::Owned;
+
+mod comparison;
 
 /// Foreground identities and actions only. Key events never leave the hook.
 pub enum HookNotice {
     Foreground { window: usize, available: bool },
     Action(HotkeyEvent),
+    ComparisonShortcutUpdated,
     Unavailable,
     Stopped,
 }
@@ -76,6 +79,7 @@ fn action_sender(events: Sender<HotkeyEvent>) -> impl FnMut(HookNotice) + Send {
 /// Keeps the hook thread alive. Dropping it removes both hooks and joins the thread.
 pub struct HotkeyHook {
     wake: Arc<OwnedHandle>,
+    comparison: Arc<Mutex<Option<Hotkey>>>,
     commands: Sender<Option<Control>>,
     worker: Option<JoinHandle<()>>,
 }
@@ -114,16 +118,19 @@ impl HotkeyHook {
             OwnedHandle::from_raw_handle(CreateEventW(None, false, false, None)?.0)
         });
         let signal = Arc::clone(&wake);
+        let comparison = Arc::new(Mutex::new(None));
+        let binding = comparison.clone();
         let (commands, updates) = mpsc::channel();
         let worker = thread::Builder::new()
             .name("qms-hotkey".into())
             .spawn(move || {
-                if let Err(error) = run(config, observe, &ready, &signal, updates) {
+                if let Err(error) = run(config, observe, &ready, &signal, updates, binding) {
                     let _ = ready.send(Err(error));
                 }
             })?;
         let hook = Self {
             wake,
+            comparison,
             commands,
             worker: Some(worker),
         };
@@ -136,6 +143,11 @@ impl HotkeyHook {
     pub fn configure(&self, config: HotkeyConfig) -> io::Result<()> {
         config.validate()?;
         self.send(Some(Control::Configure(config)))
+    }
+
+    /// The comparison shortcut Windows accepted on this desktop.
+    pub fn comparison_shortcut(&self) -> Option<Hotkey> {
+        *self.comparison.lock().unwrap()
     }
 
     /// Pass keys through while the focused settings field records a new binding.
@@ -255,12 +267,22 @@ impl Session {
         }
         outcome.suppress
     }
+
+    fn show_changes(&mut self) {
+        self.reconcile_recording();
+        if !self.capturing && self.target == Target::Available {
+            self.observe
+                .notify(HookNotice::Action(HotkeyEvent::ShowChanges));
+        }
+    }
 }
 
 struct HookState {
     session: Session,
     own_level: IntegrityLevel,
     foreground: HWND,
+    comparison: comparison::Registration,
+    comparison_press: comparison::Press,
 }
 
 enum Control {
@@ -271,6 +293,11 @@ enum Control {
 impl HookState {
     fn sync_keys(&mut self) {
         let altgr = unsafe { GetAsyncKeyState(i32::from(VK_RMENU.0)) } < 0;
+        if let Some(trigger) = self.comparison.trigger()
+            && unsafe { GetAsyncKeyState(trigger as i32) } >= 0
+        {
+            self.comparison_press.key(false, None);
+        }
         for vk in self.session.machine.relevant_keys() {
             let down = !(altgr && vk == u32::from(VK_LCONTROL.0))
                 && unsafe { GetAsyncKeyState(vk as i32) } < 0;
@@ -306,12 +333,15 @@ fn run(
     ready: &Sender<io::Result<()>>,
     wake: &OwnedHandle,
     updates: Receiver<Option<Control>>,
+    binding: Arc<Mutex<Option<Hotkey>>>,
 ) -> io::Result<()> {
     let own_level = IntegrityLevel::current()?;
     let mut state = HookState {
         session: Session::new(config, observe),
         own_level,
         foreground: HWND::default(),
+        comparison: comparison::Registration::new(config, binding),
+        comparison_press: comparison::Press::default(),
     };
     // Owned hook handles are unregistered on this thread, including on partial startup.
     let _keyboard = unsafe {
@@ -365,7 +395,17 @@ fn pump_messages(wake: HANDLE, updates: &Receiver<Option<Control>>) -> bool {
                 STATE.with_borrow_mut(|state| {
                     if let Some(state) = state {
                         state.session.change(command);
+                        state.comparison.update(
+                            (!state.session.capturing).then_some(state.session.machine.config),
+                        );
+                        state.comparison_press = comparison::Press::default();
                         state.sync_keys();
+                        if !state.session.capturing {
+                            state
+                                .session
+                                .observe
+                                .notify(HookNotice::ComparisonShortcutUpdated);
+                        }
                     }
                 });
             }
@@ -377,6 +417,20 @@ fn pump_messages(wake: HANDLE, updates: &Receiver<Option<Control>>) -> bool {
         if unsafe { PeekMessageW(&mut message, None, 0, 0, PM_REMOVE) }.as_bool() {
             if message.message == WM_QUIT {
                 return false;
+            }
+            if message.message == WM_HOTKEY && message.wParam.0 == comparison::ID as usize {
+                STATE.with_borrow_mut(|state| {
+                    if let Some(state) = state
+                        && state.comparison.matches(message.lParam.0)
+                    {
+                        let current = unsafe { GetForegroundWindow() };
+                        if state.comparison_press.take(current) {
+                            state.refresh_target(current);
+                            state.session.show_changes();
+                        }
+                    }
+                });
+                continue;
             }
             unsafe {
                 DispatchMessageW(&message);
@@ -422,29 +476,37 @@ unsafe extern "system" fn keyboard_proc(code: i32, message: WPARAM, data: LPARAM
     if code == HC_ACTION as i32 {
         // HC_ACTION guarantees a live KBDLLHOOKSTRUCT for the duration of this call.
         let input = unsafe { &*(data.0 as *const KBDLLHOOKSTRUCT) };
-        if let Some(down) = physical_transition(message.0 as u32, input) {
-            let suppress = STATE.with(|slot| {
-                let Ok(mut state) = slot.try_borrow_mut() else {
-                    return false;
-                };
-                let Some(state) = state.as_mut() else {
-                    return false;
-                };
-                if !state.session.machine.is_relevant(input.vkCode) {
-                    return false;
-                }
-                let window = unsafe { GetForegroundWindow() };
-                // A key may arrive before the queued foreground-change notification.
-                if window != state.foreground
-                    || (down && state.session.target == Target::Unknown && !window.is_invalid())
-                {
-                    state.refresh_target(window);
-                }
-                state.session.key(input.vkCode, down)
-            });
-            if suppress {
-                return LRESULT(1);
+        let transition = physical_transition(message.0 as u32, input);
+        let suppress = STATE.with(|slot| {
+            let Ok(mut state) = slot.try_borrow_mut() else {
+                return false;
+            };
+            let Some(state) = state.as_mut() else {
+                return false;
+            };
+            if state.comparison.trigger() == Some(input.vkCode) {
+                // The OS posts WM_HOTKEY after this hook. Bind it to the real
+                // keypress and discard it if the foreground changes in between.
+                state.comparison_press.key(
+                    matches!(message.0 as u32, WM_KEYDOWN | WM_SYSKEYDOWN),
+                    (transition == Some(true)).then(|| unsafe { GetForegroundWindow() }),
+                );
             }
+            let Some(down) = transition else { return false };
+            if !state.session.machine.is_relevant(input.vkCode) {
+                return false;
+            }
+            let window = unsafe { GetForegroundWindow() };
+            // A key may arrive before the queued foreground-change notification.
+            if window != state.foreground
+                || (down && state.session.target == Target::Unknown && !window.is_invalid())
+            {
+                state.refresh_target(window);
+            }
+            state.session.key(input.vkCode, down)
+        });
+        if suppress {
+            return LRESULT(1);
         }
     }
     unsafe { CallNextHookEx(None, code, message, data) }

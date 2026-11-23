@@ -46,14 +46,14 @@ fn is_filler(
         _ => false,
     };
     candidate
-        && !forms_compound(tokens[..index].iter().rev())
-        && !forms_compound(tokens[index + 1..].iter())
+        && !joins_words(tokens[..index].iter().rev())
+        && !joins_words(tokens[index + 1..].iter())
 }
 
-fn forms_compound<'a>(mut neighbors: impl Iterator<Item = &'a Token>) -> bool {
+fn joins_words<'a>(mut neighbors: impl Iterator<Item = &'a Token>) -> bool {
     neighbors.next().is_some_and(|token| {
         token.kind == Kind::Punctuation
-            && matches!(token.text.as_str(), "-" | "‐" | "‑" | "'" | "’")
+            && matches!(token.text.as_str(), "." | "-" | "‐" | "‑" | "'" | "’")
     }) && neighbors
         .next()
         .is_some_and(|token| matches!(token.kind, Kind::Word | Kind::Protected))

@@ -6,9 +6,46 @@ use std::{
     path::{Path, PathBuf},
 };
 
-mod autostart;
+pub(super) mod autostart;
 
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum FillerMode {
+    Off,
+    #[default]
+    Standard,
+    Strong,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
+pub(crate) struct CleanupSettings {
+    pub voice_commands: bool,
+    pub dictionary: bool,
+    pub filler_words: FillerMode,
+    pub self_corrections: bool,
+    pub numbers: bool,
+    pub digits_from: u32,
+    pub punctuation: bool,
+    pub snippets: bool,
+}
+
+impl Default for CleanupSettings {
+    fn default() -> Self {
+        Self {
+            voice_commands: false,
+            dictionary: true,
+            filler_words: FillerMode::Standard,
+            self_corrections: true,
+            numbers: true,
+            digits_from: 13,
+            punctuation: true,
+            snippets: true,
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(remote = "HotkeyMode", rename_all = "lowercase")]
@@ -30,6 +67,7 @@ pub(crate) struct Settings {
     pub volume_percent: u8,
     pub autostart: bool,
     pub overlay: OverlayPreferences,
+    pub cleanup: CleanupSettings,
 }
 
 impl Default for Settings {
@@ -45,6 +83,7 @@ impl Default for Settings {
             volume_percent: 20,
             autostart: false,
             overlay: OverlayPreferences::default(),
+            cleanup: CleanupSettings::default(),
         }
     }
 }
@@ -60,7 +99,7 @@ impl Settings {
         Ok(config)
     }
 
-    fn validate(&self) -> io::Result<()> {
+    pub(super) fn validate(&self) -> io::Result<()> {
         self.hotkeys()?;
         if self.volume_percent > 100 {
             return Err(io::Error::other(
@@ -96,18 +135,12 @@ pub(crate) struct SettingsStore {
 
 impl SettingsStore {
     pub(crate) fn open() -> io::Result<Self> {
-        let store = Self::load(&data_dir()?)?;
-        // Refresh a moved executable or repair an interrupted login registration.
-        // A disabled installation normally has no reason to touch the registry.
-        if store.current.autostart || std::env::args_os().skip(1).any(|arg| arg == "--autostart") {
-            autostart::set(store.current.autostart)?;
-        }
-        Ok(store)
+        Self::load(&data_dir()?)
     }
 
-    fn load(dir: &Path) -> io::Result<Self> {
+    pub(super) fn load(dir: &Path) -> io::Result<Self> {
         let path = dir.join("settings.json");
-        let (current, migrated) = match fs::read(&path) {
+        let (current, migrated) = match crate::config_file::read(&path) {
             Ok(bytes) => Self::decode(&bytes)?,
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 let overlay = legacy_overlay(dir)?;
@@ -184,7 +217,7 @@ fn legacy_overlay(dir: &Path) -> io::Result<OverlayPreferences> {
         #[serde(default)]
         preferences: OverlayPreferences,
     }
-    match fs::read(dir.join("overlay.json")) {
+    match crate::config_file::read(&dir.join("overlay.json")) {
         Ok(bytes) => Ok(serde_json::from_slice::<LegacyOverlay>(&bytes)?.preferences),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(OverlayPreferences::default()),
         Err(e) => Err(e),
@@ -210,7 +243,7 @@ fn stage(path: &Path, settings: &Settings) -> io::Result<tempfile::NamedTempFile
             settings,
         },
     )?;
-    file.as_file().sync_all()?;
+    crate::config_file::sync(file.as_file())?;
     Ok(file)
 }
 

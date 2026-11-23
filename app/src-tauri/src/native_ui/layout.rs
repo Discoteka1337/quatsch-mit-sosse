@@ -1,7 +1,9 @@
 use super::*;
 use windows::Win32::UI::Controls::SetScrollInfo;
 
-pub(super) const CONTENT_HEIGHT: i32 = 538;
+pub(super) fn content_height(general: bool) -> i32 {
+    if general { 752 } else { 544 }
+}
 pub(super) const TITLE: u16 = 100;
 pub(super) const DICTATION: u16 = 101;
 pub(super) const REINSERT: u16 = 102;
@@ -20,6 +22,15 @@ pub(super) const HIDE_FROM_CAPTURE: u16 = 114;
 pub(super) const STATUS: u16 = 115;
 pub(super) const OPEN_DICTIONARY: u16 = 116;
 pub(super) const OPEN_SNIPPETS: u16 = 117;
+pub(super) const COMPARISON_SHORTCUT: u16 = 118;
+pub(super) const VOICE_COMMANDS: u16 = 119;
+pub(super) const USE_DICTIONARY: u16 = 120;
+pub(super) const SELF_CORRECTIONS: u16 = 121;
+pub(super) const WRITE_NUMBERS: u16 = 122;
+pub(super) const PUNCTUATION: u16 = 123;
+pub(super) const USE_SNIPPETS: u16 = 124;
+pub(super) const FILLER_MODE: u16 = 125;
+pub(super) const DIGITS_FROM: u16 = 126;
 pub(super) const EDITOR_TITLE: u16 = 301;
 pub(super) const GENERAL: u16 = 302;
 pub(super) const SEARCH: u16 = 303;
@@ -95,28 +106,29 @@ pub(super) static FIELDS: std::sync::LazyLock<Vec<Field>> = std::sync::LazyLock:
         (DICTATION, Button, "", Left, 90, 30),
         (202, Text, &l.general_reinsert, Right, 66, 22),
         (REINSERT, Button, "", Right, 90, 30),
-        (203, Text, &l.general_mode, Left, 134, 22),
-        (MODE, Combo, "", Left, 158, 28),
-        (204, Text, &l.general_microphone, Right, 134, 22),
-        (MICROPHONE, Combo, "", Right, 158, 28),
-        (TEST_MIC, Button, &l.general_microphone_test, Left, 204, 30),
-        (206, Text, &l.general_level, Right, 190, 20),
-        (LEVEL, Meter, &l.general_level, Right, 214, 14),
-        (207, Text, &l.general_model, Full, 246, 22),
-        (MODEL, Combo, "", Left, 270, 30),
-        (DOWNLOAD, Button, &l.general_download, ActionLeft, 270, 30),
-        (REMOVE, Button, &l.general_remove, ActionRight, 270, 30),
-        (210, Text, &l.general_volume, Full, 318, 22),
-        (VOLUME, Combo, "", Left, 342, 28),
-        (TONES, Check, &l.general_tones, Right, 342, 28),
-        (AUTOSTART, Check, &l.general_autostart, Full, 378, 28),
-        (213, Text, &l.general_overlay, Full, 418, 22),
+        (COMPARISON_SHORTCUT, Text, "", Full, 128, 22),
+        (203, Text, &l.general_mode, Left, 158, 22),
+        (MODE, Combo, "", Left, 182, 28),
+        (204, Text, &l.general_microphone, Right, 158, 22),
+        (MICROPHONE, Combo, "", Right, 182, 28),
+        (TEST_MIC, Button, &l.general_microphone_test, Left, 228, 30),
+        (206, Text, &l.general_level, Right, 214, 20),
+        (LEVEL, Meter, &l.general_level, Right, 238, 14),
+        (207, Text, &l.general_model, Full, 270, 22),
+        (MODEL, Combo, "", Left, 294, 30),
+        (DOWNLOAD, Button, &l.general_download, ActionLeft, 294, 30),
+        (REMOVE, Button, &l.general_remove, ActionRight, 294, 30),
+        (210, Text, &l.general_volume, Full, 342, 22),
+        (VOLUME, Combo, "", Left, 366, 28),
+        (TONES, Check, &l.general_tones, Right, 366, 28),
+        (AUTOSTART, Check, &l.general_autostart, Full, 402, 28),
+        (213, Text, &l.general_overlay, Full, 442, 22),
         (
             SHOW_READY,
             Check,
             &messages.overlay_show_ready,
             Left,
-            444,
+            468,
             28,
         ),
         (
@@ -124,10 +136,28 @@ pub(super) static FIELDS: std::sync::LazyLock<Vec<Field>> = std::sync::LazyLock:
             Check,
             &messages.overlay_hide_from_capture,
             Right,
-            444,
+            468,
             28,
         ),
-        (STATUS, Text, "", Full, 486, 44),
+        (214, Text, &l.cleanup_title, Full, 508, 22),
+        (VOICE_COMMANDS, Check, &l.cleanup_commands, Left, 532, 26),
+        (USE_DICTIONARY, Check, &l.cleanup_dictionary, Right, 532, 26),
+        (
+            SELF_CORRECTIONS,
+            Check,
+            &l.cleanup_corrections,
+            Left,
+            562,
+            26,
+        ),
+        (WRITE_NUMBERS, Check, &l.cleanup_numbers, Right, 562, 26),
+        (PUNCTUATION, Check, &l.cleanup_punctuation, Left, 592, 26),
+        (USE_SNIPPETS, Check, &l.cleanup_snippets, Right, 592, 26),
+        (215, Text, &l.cleanup_fillers, Left, 628, 22),
+        (FILLER_MODE, Combo, "", Left, 652, 28),
+        (216, Text, &l.cleanup_threshold, Right, 628, 22),
+        (DIGITS_FROM, Edit, "", Right, 652, 28),
+        (STATUS, Text, "", Full, 694, 44),
     ];
     for collection in [Collection::Dictionary, Collection::Snippets] {
         let mut controls = vec![
@@ -235,7 +265,8 @@ fn place(form: &Form) -> io::Result<()> {
         GetClientRect(form.hwnd, &mut bounds)?;
     }
     let page = bounds.bottom.max(1);
-    let content = scale(CONTENT_HEIGHT, dpi);
+    let title_style = unsafe { GetWindowLongW(form.control(TITLE), GWL_STYLE) } as u32;
+    let content = scale(content_height(title_style & WS_VISIBLE.0 != 0), dpi);
     let offset = form.scroll.get().clamp(0, (content - page).max(0));
     form.scroll.set(offset);
     let info = SCROLLINFO {

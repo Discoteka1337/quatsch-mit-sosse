@@ -136,6 +136,41 @@ snippets = [["März", "{zwischenablage}"]]
 expected = "Ich fahre am 7. März."
 
 [[case]]
+name = "Der Ordinalpunkt vor einem Nomen löst kein Snippet im Satz aus"
+input = "Das ist der 3. Versuch. Wir treffen uns am 7. im Büro."
+rules = ["snippets"]
+snippets = [["Versuch", "{zwischenablage}"], ["im Büro", "Besprechung"]]
+expected = "Das ist der 3. Versuch. Wir treffen uns am 7. im Büro."
+
+[[case]]
+name = "Ein abgeschlossener Satz mit einer Menge lässt das nächste Snippet zu"
+input = "Wir sind 13. Vorlage!"
+rules = ["snippets"]
+snippets = [["Vorlage", "Viele Grüße!"]]
+expected = "Wir sind 13. Viele Grüße!"
+
+[[case]]
+name = "Ein gesprochener Auslöser bleibt nach der Zahlenbereinigung erkennbar"
+input = "Dreizehn Mengen."
+rules = ["numbers", "snippets"]
+snippets = [["dreizehn Mengen", "Packliste"]]
+expected = "Packliste"
+
+[[case]]
+name = "Wörtliche und bereinigte Treffer bleiben ihren jeweiligen Sätzen zugeordnet"
+input = "Dreizehn Mengen. 13 Mengen. Ähm, Vorlage!"
+rules = ["filler_words", "numbers", "punctuation", "snippets"]
+snippets = [["dreizehn Mengen", "Wort"], ["13 Mengen", "Ziffer"], ["Vorlage", "Bereinigt"]]
+expected = "Wort Ziffer Bereinigt"
+
+[[case]]
+name = "Ein wörtlicher Auslöser erhält keine ungesprochenen Zahlvarianten"
+input = "Dreizehn Mengen. 13 Mengen."
+rules = ["numbers", "snippets"]
+snippets = [["dreizehn Mengen", "Packliste"]]
+expected = "Packliste 13 Mengen."
+
+[[case]]
 name = "Die exakte Wortgrenze hat Vorrang vor einem gesprochenen Bindestrich"
 input = "Wachs Tube."
 rules = ["snippets"]

@@ -27,7 +27,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if args.next().is_some() {
         return Err(usage.into());
     }
-    let (_hook, events) = HotkeyHook::start(config)?;
+    let (hook, events) = HotkeyHook::start(config)?;
+    if let Some(key) = hook.comparison_shortcut() {
+        println!("Änderungen anzeigen mit {key}.");
+    }
     let mode = match config.mode {
         HotkeyMode::Hold => "halten",
         HotkeyMode::Toggle => "umschalten",
@@ -50,6 +53,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 HotkeyEvent::Stop => "Stopp",
                 HotkeyEvent::Cancel => "Abbruch",
                 HotkeyEvent::ReinsertLast => "Letzten Text erneut einfügen",
+                HotkeyEvent::ShowChanges => "Änderungen anzeigen",
                 HotkeyEvent::ElevatedTarget =>
                     "ElevatedTarget – Das Vordergrundfenster hat höhere Rechte.",
             }

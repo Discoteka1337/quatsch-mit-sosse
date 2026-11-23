@@ -12,6 +12,7 @@ cpal = { version = "0.18.2", default-features = false }
 
 [dev-dependencies]
 hound = "3.5.1"
+tempfile = "3"
 
 [[example]]
 name = "record_test"

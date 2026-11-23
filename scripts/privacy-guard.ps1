@@ -41,7 +41,9 @@ function Read-Git {
 
 function Test-ProhibitedIndexPath {
     param([string]$Path)
-    return $Path -match '^testdata/private/|\.(onnx|gguf|bin)$' -or
+    return $Path -match '^testdata/private/|\.(onnx(\.data)?|gguf|bin)$' -or
+        $Path -match '(^|/)((turbo-)?tokens\.txt|sherpa-onnx-(nemo-parakeet|whisper)-[^/]*\.tar\.bz2)$' -or
+        $Path -match '(^|/)\.env($|/|\.(?!example($|/)))|\.(key|pem)($|/)' -or
         ($Path -match '\.wav$' -and $Path -notmatch '^testdata/public/[^/]+\.wav$')
 }
 

@@ -19,7 +19,11 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), String> {
-    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    let arguments: Vec<String> = std::env::args_os()
+        .skip(1)
+        .map(std::ffi::OsString::into_string)
+        .collect::<Result<_, _>>()
+        .map_err(|_| USAGE.to_owned())?;
     let command: Vec<&str> = arguments.iter().map(String::as_str).collect();
     if matches!(command.as_slice(), ["--help" | "-h"]) {
         println!("{USAGE}");

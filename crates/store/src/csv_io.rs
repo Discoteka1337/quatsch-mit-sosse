@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::{self, Cursor, Read, Write};
 
 use rusqlite::TransactionBehavior;
 use serde::Deserialize;
@@ -6,6 +6,62 @@ use serde::Deserialize;
 use crate::{DictionaryDraft, Error, INSERT_ENTRY, Result, Source, Store};
 
 const HEADERS: [&str; 5] = ["term", "replacement", "aliases", "source", "created_at"];
+
+#[derive(Clone, Copy)]
+enum Field {
+    Start,
+    Plain,
+    Quoted,
+    AfterQuote,
+}
+
+// The csv decoder accepts EOF in quoted fields. Validate quoting while
+// streaming, before a truncated export can silently merge several records.
+struct CheckedCsv<R> {
+    input: R,
+    field: Field,
+}
+
+impl<R: Read> Read for CheckedCsv<R> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        let count = self.input.read(buffer)?;
+        if count == 0 && matches!(self.field, Field::Quoted) {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+        for &byte in &buffer[..count] {
+            self.field = match (self.field, byte) {
+                (Field::Quoted, b'"') => Field::AfterQuote,
+                (Field::Quoted, _) => Field::Quoted,
+                (_, b',' | b'\r' | b'\n') => Field::Start,
+                (Field::Start | Field::AfterQuote, b'"') => Field::Quoted,
+                (Field::AfterQuote, _) | (Field::Plain, b'"') => {
+                    return Err(io::ErrorKind::InvalidData.into());
+                }
+                _ => Field::Plain,
+            };
+        }
+        Ok(count)
+    }
+}
+
+pub(super) fn import_reader(mut input: impl Read) -> Result<csv::Reader<impl Read>> {
+    let mut prefix = Vec::new();
+    input
+        .by_ref()
+        .take(3)
+        .read_to_end(&mut prefix)
+        .map_err(|_| Error::File)?;
+    if prefix == b"\xef\xbb\xbf" {
+        prefix.clear();
+    }
+    Ok(csv::Reader::from_reader(CheckedCsv {
+        input: Cursor::new(prefix).chain(input),
+        field: Field::Start,
+    }))
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -46,7 +102,7 @@ pub(super) fn export_writer<W: Write>(writer: W, headers: &[&str]) -> Result<csv
 
 impl Store {
     pub fn import_csv(&mut self, reader: impl Read) -> Result<usize> {
-        let mut reader = csv::Reader::from_reader(reader);
+        let mut reader = import_reader(reader)?;
         let headers = reader.headers().map_err(|_| Error::InvalidCsv)?;
         validate_headers(headers, &["term"], &HEADERS)?;
         // Only fields present in the file may overwrite an existing entry.

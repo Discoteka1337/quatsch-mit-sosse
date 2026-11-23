@@ -51,12 +51,22 @@ try {
         Remove-Item -LiteralPath "$measurementFile"
     }
 
-    foreach ($unsafePath in @('example.onnx', 'modell-ß.onnx', 'testdata/private/aufnahme-ß.txt')) {
+    $modelFiles = @(
+        'encoder.int8.onnx.data',
+        'kopie/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2',
+        'sherpa-onnx-whisper-turbo.tar.bz2',
+        'kopie/tokens.txt',
+        'turbo-tokens.txt'
+    )
+    $restrictedAudio = @('aufnahme.wav', 'testdata/public/unterordner/aufnahme.wav', 'testdata/publicity/aufnahme.wav')
+    $credentialPaths = @('.env', 'config/.env.local', 'config/.env.example.backup', 'keys/client.key', 'cert.pem', 'copy/.env.test/value.txt')
+    $allowedFiles = @('testdata/public/synthetisch.wav', 'fixture.data', 'notes-tokens.txt', 'source.tar.bz2', '.env.example', 'config/.env.example', 'sample.env')
+    foreach ($unsafePath in (@('example.onnx', 'modell-ß.onnx', 'testdata/private/aufnahme-ß.txt') + $modelFiles + $restrictedAudio + $credentialPaths)) {
         $unsafeFile = Join-Path -Path "$fixtureRoot" -ChildPath "$unsafePath"
         $parentDirectory = [System.IO.Path]::GetDirectoryName("$unsafeFile")
         New-Item -Path "$parentDirectory" -ItemType Directory -Force | Out-Null
         [System.IO.File]::WriteAllText("$unsafeFile", 'synthetic test')
-        git -C "$fixtureRoot" add -- "$unsafePath"
+        git -C "$fixtureRoot" add --force -- "$unsafePath"
         if ($LASTEXITCODE -ne 0) { throw 'Synthetischer Index-Test konnte nicht vorbereitet werden.' }
         $plan = & "$fixtureRoot\scripts\check.ps1" -Stage V5 -PlanOnly
         Assert-Condition (-not $plan.Allowed) "Verbotene Datei wurde nicht blockiert: $unsafePath"
@@ -64,6 +74,15 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Synthetischer Index-Test konnte nicht aufgeräumt werden.' }
         Remove-Item -LiteralPath "$unsafeFile"
     }
+    foreach ($allowedPath in $allowedFiles) {
+        $allowedFile = Join-Path -Path "$fixtureRoot" -ChildPath "$allowedPath"
+        New-Item -Path "$([System.IO.Path]::GetDirectoryName($allowedFile))" -ItemType Directory -Force | Out-Null
+        [System.IO.File]::WriteAllText("$allowedFile", 'synthetic test')
+        git -C "$fixtureRoot" add --force -- "$allowedPath"
+        if ($LASTEXITCODE -ne 0) { throw 'Erlaubter Index-Test konnte nicht vorbereitet werden.' }
+    }
+    $plan = & "$fixtureRoot\scripts\check.ps1" -Stage V5 -PlanOnly
+    Assert-Condition $plan.Allowed 'Öffentliches Testaudio und gewöhnliche Daten, Texte und Archive müssen zulässig sein.'
 
     $plan = & "$fixtureRoot\scripts\check.ps1" -PlanOnly
     Assert-Condition (-not $plan.CanPass) 'Die Standardprüfung darf fehlende Projektdateien nicht überspringen.'
@@ -143,20 +162,19 @@ try {
 
     # Keep ignore-rule checks after the index fixtures so their staging remains independent.
     Copy-Item -LiteralPath "$projectRoot\.gitignore" -Destination "$fixtureRoot\.gitignore"
-    foreach ($sourcePath in @('crates/models/Cargo.toml', 'crates/models/src/lib.rs')) {
+    foreach ($sourcePath in (@('crates/models/Cargo.toml', 'crates/models/src/lib.rs') + $allowedFiles)) {
         git -C "$fixtureRoot" check-ignore --no-index --quiet -- "$sourcePath"
-        Assert-Condition ($LASTEXITCODE -eq 1) "Crate-Quellen dürfen nicht ignoriert werden: $sourcePath"
+        Assert-Condition ($LASTEXITCODE -eq 1) "Erlaubte Dateien dürfen nicht ignoriert werden: $sourcePath"
     }
-    foreach ($privatePath in @(
+    foreach ($privatePath in (@(
         'models/parakeet/model.onnx',
         'models/parakeet/config.json',
         'crates/models/model.onnx',
         'crates/models/model.gguf',
         'crates/models/model.bin',
         'testdata/private/aufnahme.txt',
-        '.env',
         'secret.key'
-    )) {
+    ) + $modelFiles + $restrictedAudio + $credentialPaths)) {
         git -C "$fixtureRoot" check-ignore --no-index --quiet -- "$privatePath"
         Assert-Condition ($LASTEXITCODE -eq 0) "Private Dateien und Modelle müssen ignoriert bleiben: $privatePath"
     }

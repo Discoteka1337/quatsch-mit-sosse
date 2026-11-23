@@ -30,6 +30,7 @@ public static class QmsNativeWindows {
     [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr window);
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr parent, int id);
+    [DllImport("user32.dll")] private static extern int GetDlgCtrlID(IntPtr control);
     [DllImport("user32.dll", EntryPoint="GetWindowLongW")] public static extern int GetWindowLong(IntPtr window, int index);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern bool GetWindowDisplayAffinity(IntPtr window, out uint affinity);
@@ -47,6 +48,15 @@ public static class QmsNativeWindows {
         UIntPtr ignored;
         return button != IntPtr.Zero && GetDlgItem(parent, id) == button
             && ReadControl(parent, 0x0111, new IntPtr(id), button, 2, 5000, out ignored) != IntPtr.Zero;
+    }
+    public static bool ConfirmMessageBox(IntPtr dialog) {
+        // Windows can assign IDCANCEL to the only button of an MB_OK message box.
+        var button = FindWindowEx(dialog, IntPtr.Zero, "Button", null);
+        if (button == IntPtr.Zero || !IsWindowVisible(button)
+            || FindWindowEx(dialog, button, "Button", null) != IntPtr.Zero) return false;
+        int id = GetDlgCtrlID(button);
+        return id > 0 && GetDlgItem(dialog, id) == button
+            && PostMessage(dialog, 0x0111, new IntPtr(id), button);
     }
     public static string ControlText(IntPtr parent, int id) {
         var control = GetDlgItem(parent, id);
@@ -119,12 +129,13 @@ public static class QmsNativeWindows {
 '@
 
 function Start-NativeTestProcess {
-    param([string]$Log = '', [string]$StopEvent = '')
+    param([string]$Log = '', [string]$StopEvent = '', [switch]$CaptureErrors)
     $info = [System.Diagnostics.ProcessStartInfo]::new()
     $info.FileName = "$nativeExecutable"
     $info.WorkingDirectory = [System.IO.Path]::GetDirectoryName("$nativeExecutable")
     $info.UseShellExecute = $false
     $info.CreateNoWindow = $true
+    $info.RedirectStandardError = $CaptureErrors.IsPresent
     $info.EnvironmentVariables['LOCALAPPDATA'] = $testData
     $info.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
     $info.EnvironmentVariables.Remove('QMS_BENCHMARK_LOG')
@@ -185,7 +196,10 @@ function Assert-RestoredSettings {
         @('Diktierkürzel', 101, 0x000D, $DictationHotkey),
         @('Umschaltmodus', 103, 0x0147, 1),
         @('Lautstärke in Prozent', 110, 0x0147, 47),
-        @('Diktattöne', 111, 0x00F0, 0)
+        @('Diktattöne', 111, 0x00F0, 0),
+        @('Sprachbefehle', 119, 0x00F0, 1),
+        @('Füllwörter', 125, 0x0147, 2),
+        @('Ziffern ab', 126, 0x000D, '7')
     )) {
         $name, $id, $message, $expected = $field
         try {
@@ -365,6 +379,17 @@ try {
                 $saved = Get-Content -LiteralPath "$settingsFile" -Encoding UTF8 -Raw | ConvertFrom-Json
                 return $saved.tones -eq $false
             } 'Das Ausschalten der Töne muss im isolierten Benutzerprofil gespeichert werden.'
+            $commands = [QmsNativeWindows]::GetDlgItem($visible, 119)
+            if (-not [QmsNativeWindows]::Click($commands)) { throw 'Sprachbefehle ließen sich nicht einschalten.' }
+            Wait-NativeCondition {
+                (Get-Content -LiteralPath "$settingsFile" -Encoding UTF8 -Raw | ConvertFrom-Json).cleanup.voiceCommands -eq $true
+            } 'Die Regelauswahl muss im isolierten Profil gespeichert werden.'
+            $threshold = [QmsNativeWindows]::GetDlgItem($visible, 126)
+            [QmsNativeWindows]::SetControlText($visible, 126, '7')
+            $null = [QmsNativeWindows]::PostMessage($visible, 0x0111, [IntPtr](0x02000000 + 126), $threshold)
+            Wait-NativeCondition {
+                (Get-Content -LiteralPath "$settingsFile" -Encoding UTF8 -Raw | ConvertFrom-Json).cleanup.digitsFrom -eq 7
+            } 'Die Zahlenschwelle muss nach Verlassen des Felds gespeichert werden.'
             # Send only window messages to this isolated app. Never inject global input.
             $hotkey = [QmsNativeWindows]::GetDlgItem($visible, 101)
             if ($hotkey -eq [IntPtr]::Zero) { throw 'Das Aufzeichnen-Feld fehlt.' }
@@ -372,16 +397,18 @@ try {
             foreach ($event in @(@(0x0100, 0x11), @(0x0100, 0x79), @(0x0101, 0x79), @(0x0101, 0x11))) {
                 $null = [QmsNativeWindows]::PostMessage($hotkey, $event[0], [IntPtr]$event[1], [IntPtr]::Zero)
             }
-            foreach ($choice in @(@(103, 1), @(110, 47))) {
+            foreach ($choice in @(@(103, 1), @(110, 47), @(125, 2))) {
                 $combo = [QmsNativeWindows]::GetDlgItem($visible, $choice[0])
                 if ($combo -eq [IntPtr]::Zero) { throw 'Die Liste für Modus oder Lautstärke fehlt.' }
                 $null = [QmsNativeWindows]::PostMessage($combo, 0x014E, [IntPtr]$choice[1], [IntPtr]::Zero)
                 $null = [QmsNativeWindows]::PostMessage($visible, 0x0111, [IntPtr](0x10000 + $choice[0]), $combo)
             }
-            Wait-NativeCondition {
-                $choices = Get-Content -LiteralPath "$settingsFile" -Encoding UTF8 -Raw | ConvertFrom-Json
-                return ($choices.dictationHotkey -ceq 'Strg+F10' -and $choices.mode -ceq 'toggle' -and $choices.volumePercent -eq 47)
-            } 'Aufgezeichnetes Kürzel, Umschaltmodus und 47 Prozent müssen gespeichert sein.'
+            foreach ($choice in @(@('dictationHotkey', 'Strg+F10'), @('mode', 'toggle'), @('volumePercent', 47))) {
+                Wait-NativeCondition {
+                    $choices = Get-Content -LiteralPath "$settingsFile" -Encoding UTF8 -Raw | ConvertFrom-Json
+                    return $choices.($choice[0]) -ceq $choice[1]
+                } "Die rasch aufeinanderfolgende Änderung an $($choice[0]) muss gespeichert sein."
+            }
             foreach ($control in @($privacy, $ready)) {
                 if (-not [QmsNativeWindows]::Click($control)) { throw 'Die Overlay-Option konnte nicht betätigt werden.' }
             }
@@ -445,6 +472,39 @@ try {
         throw 'Die Neustartprüfung muss beim vertauschten Kürzel das Diktierfeld mit Soll- und Istwert nennen.'
     }
     $null = Stop-QmsMeasuredApp -Process $script:nativeProcess -StopEvent $stopEvent -Tracked $script:nativeTracked
+    # A damaged settings document must not prevent mixer recovery or disclose its contents.
+    $dataFolder = Split-Path -Parent "$settingsFile"
+    $journal = Join-Path -Path "$dataFolder" -ChildPath 'volume-recovery.json'
+    $invalidSettings = '{"qms-private-fixture":true}'
+    [IO.File]::WriteAllText("$settingsFile", $invalidSettings)
+    [IO.File]::WriteAllText("$journal", '{}')
+    $failed = Start-NativeTestProcess -CaptureErrors
+    try {
+        $stderr = $failed.StandardError.ReadToEndAsync()
+        $timer = [Diagnostics.Stopwatch]::StartNew()
+        $dialog = $null
+        while (-not $failed.HasExited -and $timer.Elapsed.TotalSeconds -lt 20) {
+            $dialog = @([QmsNativeWindows]::AppWindows($failed.Id, $locale.appName) | Where-Object {
+                [QmsNativeWindows]::IsWindowVisible($_) -and
+                [QmsNativeWindows]::StaticTexts($_, $failed.Id) -ccontains $locale.startupSettingsError
+            }) | Select-Object -First 1
+            if ($null -ne $dialog) { break }
+            Start-Sleep -Milliseconds 50
+        }
+        if ($null -eq $dialog) { throw 'Bei beschädigten Einstellungen fehlt der lokale Startfehlerdialog.' }
+        if (-not [QmsNativeWindows]::ConfirmMessageBox($dialog)) {
+            throw 'Die OK-Schaltfläche des Startfehlerdialogs konnte die Bestätigung nicht zustellen.'
+        }
+        if (-not $failed.WaitForExit(10000)) { throw 'Die App läuft zehn Sekunden nach der Bestätigung des Startfehlers noch.' }
+        if ($failed.ExitCode -ne 1) { throw "Beim Startfehler wurde Exitcode 1 erwartet, beobachtet wurde $($failed.ExitCode)." }
+        if ($stderr.GetAwaiter().GetResult().Contains('qms-private-fixture')) { throw 'Ein privater Einstellungswert wurde ausgegeben.' }
+        if ((Test-Path -LiteralPath "$journal") -or [IO.File]::ReadAllText("$settingsFile") -cne $invalidSettings) {
+            throw 'Beim Startfehler muss die Mixerwiederherstellung laufen und die Einstellungsdatei erhalten bleiben.'
+        }
+    } finally {
+        if (-not $failed.HasExited) { $failed.Kill(); $failed.WaitForExit() }
+        $failed.Dispose()
+    }
     $cleanExit = $true
     Write-Host 'Native Fensterprüfung bestanden: deutsche Bedienung, Ein-Instanz-Betrieb, Fokus beim Ziehen, Aufnahmeschutz, gespeicherte Position nach Neustart und Prozessprüfung ohne WebView2.'
 } finally {

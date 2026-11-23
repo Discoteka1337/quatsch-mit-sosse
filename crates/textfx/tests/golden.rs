@@ -149,6 +149,69 @@ fn a_dictation_reads_each_requested_value_once() {
 }
 
 #[test]
+fn ambiguous_spoken_templates_cannot_fall_through_to_clipboard_after_cleanup() {
+    let mut rules = Pipeline::new([Rule::Numbers, Rule::Snippets]);
+    rules.snippets = [
+        ("dreizehn Mengen", "{zwischenablage}"),
+        ("Dreizehn Mengen!", "Andere"),
+        ("13 Mengen", "{zwischenablage}"),
+    ]
+    .into_iter()
+    .map(|(trigger, text)| Snippet {
+        trigger: trigger.into(),
+        text: text.into(),
+    })
+    .collect();
+    let result = rules.apply_with_snippets("Hallo! Dreizehn Mengen!", |_| {
+        panic!("unexpected clipboard access")
+    });
+    assert_eq!(result.text, "Hallo! 13 Mengen!");
+}
+
+#[test]
+fn a_removed_sentence_boundary_never_expands_an_unrelated_clipboard_trigger() {
+    let mut rules = Pipeline::new([Rule::VoiceCommands, Rule::Numbers, Rule::Snippets]);
+    rules.snippets.push(Snippet {
+        trigger: "dreizehn Mengen".into(),
+        text: "{zwischenablage}".into(),
+    });
+    let result = rules.apply_with_snippets("Zuerst neue Zeile. Dreizehn Mengen.", |_| {
+        panic!("unexpected clipboard access")
+    });
+    assert_eq!(result.text, "Zuerst\n13 Mengen.");
+}
+
+#[test]
+fn value_changing_numeric_marks_never_activate_a_different_clipboard_template() {
+    let mut rules = Pipeline::new([Rule::Snippets]);
+    rules.snippets = vec![
+        Snippet {
+            trigger: "13 Mengen".into(),
+            text: "{zwischenablage}".into(),
+        },
+        Snippet {
+            trigger: "12".into(),
+            text: "{zwischenablage}".into(),
+        },
+    ];
+    for input in [
+        "1,3 Mengen.",
+        "1/3 Mengen!",
+        "-13 Mengen.",
+        "1:3 Mengen.",
+        "12 %!",
+    ] {
+        let result = rules.apply_with_snippets(input, |_| panic!("unexpected clipboard access"));
+        assert_eq!(result.text, input);
+    }
+    let result = rules.apply_with_snippets("13 MENGEN!", |_| "Eingesetzt".into());
+    assert_eq!(result.text, "Eingesetzt");
+    rules.snippets[0].trigger = "1,3 Mengen".into();
+    let result = rules.apply_with_snippets("1,3 Mengen.", |_| "Dezimal".into());
+    assert_eq!(result.text, "Dezimal");
+}
+
+#[test]
 fn an_unavailable_placeholder_keeps_only_the_affected_sentences() {
     let mut pipeline = Pipeline::new([Rule::Snippets]);
     pipeline.snippets = vec![

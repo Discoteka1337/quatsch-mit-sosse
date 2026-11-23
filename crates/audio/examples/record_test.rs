@@ -16,6 +16,8 @@ use quatsch_mit_sosse_audio::{
     input_devices,
 };
 
+const TEST_SECONDS: u32 = 10;
+
 enum Action {
     List,
     Help,
@@ -120,28 +122,14 @@ fn record(selection: DeviceSelection) -> Result<(), Box<dyn Error>> {
     }
     capture.start_recording()?;
     println!("Aufnahme läuft – bitte 10 Sekunden sprechen.");
-    thread::sleep(Duration::from_secs(10));
+    thread::sleep(Duration::from_secs(u64::from(TEST_SECONDS)));
     let recording = capture.stop_ready()?.ok_or_else(|| {
         io::Error::other("Die Aufnahme wurde unerwartet beendet; es wird keine WAV geschrieben.")
     })?;
-    if recording.samples().is_empty() {
-        return Err(io::Error::other(
-            "Das Mikrofon hat keine Audiodaten geliefert; es wird keine leere WAV geschrieben.",
-        )
-        .into());
-    }
     println!("Aufnahme beendet; das Mikrofon ist freigegeben.");
 
     let destination = destination_path();
-    fs::create_dir_all(
-        destination
-            .parent()
-            .expect("Die WAV hat einen Projektordner."),
-    )?;
-    write_wav(
-        BufWriter::new(File::create(&destination)?),
-        recording.samples(),
-    )?;
+    save_recording(&destination, recording.samples())?;
     println!(
         "Gespeichert: {} ({:.2} Sekunden, 16 kHz Mono, 32-Bit-Float).",
         destination.display(),
@@ -224,10 +212,66 @@ fn write_wav<W: Write + Seek>(writer: W, samples: &[f32]) -> Result<(), hound::E
     writer.finalize()
 }
 
+fn publish_wav(path: &Path, write: impl FnOnce(&mut File) -> io::Result<()>) -> io::Result<()> {
+    let directory = path.parent().ok_or(io::ErrorKind::InvalidInput)?;
+    fs::create_dir_all(directory)?;
+    let mut wav = tempfile::NamedTempFile::new_in(directory)?;
+    write(wav.as_file_mut())?;
+    wav.as_file().sync_all()?;
+    wav.persist(path)?;
+    Ok(())
+}
+
+fn save_recording(path: &Path, samples: &[f32]) -> io::Result<()> {
+    if samples.len() < (TEST_SECONDS * SAMPLE_RATE) as usize {
+        return Err(io::Error::other(
+            "Das Mikrofon hat weniger als zehn Sekunden Audio geliefert. Bitte die Testaufnahme wiederholen.",
+        ));
+    }
+    publish_wav(path, |file| {
+        write_wav(BufWriter::new(file), samples).map_err(io::Error::other)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn a_preroll_only_take_cannot_replace_the_ten_second_microphone_test() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("record_test.wav");
+        save_recording(&path, &vec![0.25; 168_000]).unwrap();
+        let previous = fs::read(&path).unwrap();
+        assert!(save_recording(&path, &[0.0; 8_000]).is_err());
+        assert!(fs::read(&path).unwrap() == previous);
+    }
+
+    #[test]
+    fn failed_wav_replacement_preserves_the_previous_recording() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("record_test.wav");
+        publish_wav(&path, |file| {
+            write_wav(file, &[0.25]).map_err(io::Error::other)
+        })
+        .unwrap();
+        let previous = fs::read(&path).unwrap();
+        assert!(
+            publish_wav(&path, |file| {
+                file.write_all(b"partial")?;
+                Err(io::Error::other("Synthetischer Schreibfehler"))
+            })
+            .is_err()
+        );
+        assert_eq!(fs::read(&path).unwrap(), previous);
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+        publish_wav(&path, |file| {
+            write_wav(file, &[0.5]).map_err(io::Error::other)
+        })
+        .unwrap();
+        assert_ne!(fs::read(&path).unwrap(), previous);
+    }
 
     #[test]
     fn duplicate_names_are_listed_without_claiming_both_are_default() {

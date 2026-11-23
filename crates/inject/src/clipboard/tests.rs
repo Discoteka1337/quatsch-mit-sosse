@@ -24,16 +24,21 @@ fn snippet_clipboard_text_stops_at_the_first_nul_and_rejects_invalid_data() {
 // Only clipboard access is simulated. The real allocation, duplication, publishing
 // order, transaction and cleanup code run against independent Win32 handles.
 #[derive(Default)]
-struct TestClipboard {
+struct TestClipboard<'a> {
     entries: RefCell<Vec<OwnedFormat>>,
     ours: Cell<bool>,
     reject_next: Cell<Option<u32>>,
+    reject_always: Cell<Option<u32>>,
+    before_restore: Cell<Option<Box<dyn FnOnce() + 'a>>>,
 }
 
-impl Clipboard for TestClipboard {
+impl Clipboard for TestClipboard<'_> {
     type Lock = ();
 
-    fn open(&self, _: bool) -> Result<(), InjectError> {
+    fn open(&self, restoring: bool) -> Result<(), InjectError> {
+        if restoring && let Some(wait) = self.before_restore.take() {
+            wait();
+        }
         Ok(())
     }
     fn owns_contents(&self) -> bool {
@@ -64,6 +69,9 @@ impl Clipboard for TestClipboard {
             .ok_or(InjectError::Unavailable)
     }
     fn set(&self, format: CLIPBOARD_FORMAT, handle: HANDLE) -> Result<(), InjectError> {
+        if self.reject_always.get() == Some(u32::from(format.0)) {
+            return Err(InjectError::Unavailable);
+        }
         if self.reject_next.get() == Some(u32::from(format.0)) {
             self.reject_next.set(None);
             return Err(InjectError::Unavailable);
@@ -75,7 +83,7 @@ impl Clipboard for TestClipboard {
     }
 }
 
-impl TestClipboard {
+impl TestClipboard<'_> {
     fn install(&self, format: CLIPBOARD_FORMAT, bytes: &[u8]) {
         OwnedFormat::from_bytes(format, bytes)
             .unwrap()
@@ -213,6 +221,119 @@ fn rolls_back_after_partial_publication_or_failed_shortcut() {
     ));
     assert_eq!(clip.formats().unwrap(), [CF_UNICODETEXT]);
     assert_eq!(clip.read(CF_UNICODETEXT, bytes.len()), bytes);
+}
+
+#[test]
+fn restores_the_original_privacy_marker_even_after_a_transient_failure() {
+    let clip = TestClipboard::default();
+    let protection = register(PRIVACY_FORMATS[2]).unwrap();
+    let original = utf16_bytes("Original");
+    clip.install(CF_UNICODETEXT, &original);
+    clip.install(protection, &[0; 4]);
+    temporary_text(
+        &clip,
+        "Ersatz",
+        || Ok(()),
+        || {
+            clip.reject_next.set(Some(u32::from(protection.0)));
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(clip.read(protection, 4), [0; 4]);
+    assert_eq!(clip.read(CF_UNICODETEXT, original.len()), original);
+}
+
+#[test]
+fn never_restores_protected_content_without_the_original_privacy_marker() {
+    let clip = TestClipboard::default();
+    let protection = register(PRIVACY_FORMATS[2]).unwrap();
+    clip.install(CF_UNICODETEXT, &utf16_bytes("Original"));
+    clip.install(protection, &[0; 4]);
+    let result = temporary_text(
+        &clip,
+        "Ersatz",
+        || Ok(()),
+        || {
+            clip.reject_always.set(Some(u32::from(protection.0)));
+            Ok(())
+        },
+    );
+    assert_eq!(result, Err(InjectError::ClipboardRestore));
+    assert!(!clip.formats().unwrap().contains(&CF_UNICODETEXT));
+}
+
+#[test]
+fn busy_recovery_releases_the_desktop_and_restores_without_a_second_paste() {
+    use crate::{InjectMethod, native::with_background_restore};
+    use std::{sync::mpsc, thread, time::Duration};
+
+    let (release, blocked) = mpsc::channel();
+    let (repaired, recovery) = mpsc::channel();
+    let (returned, desktop) = mpsc::channel();
+    let timeout = Duration::from_secs(5);
+    let caller = thread::spawn(move || {
+        let result = with_background_restore(
+            move |pending| {
+                let clip = TestClipboard::default();
+                let original = utf16_bytes("Original");
+                clip.install(CF_UNICODETEXT, &original);
+                clip.before_restore.set(Some(Box::new(move || {
+                    pending();
+                    blocked.recv_timeout(timeout).unwrap();
+                })));
+                let mut pastes = 0;
+                let result = temporary_text(
+                    &clip,
+                    "Ersatz",
+                    || Ok(()),
+                    || {
+                        pastes += 1;
+                        Ok(())
+                    },
+                );
+                repaired
+                    .send((pastes, clip.read(CF_UNICODETEXT, original.len())))
+                    .unwrap();
+                result.map(|()| InjectMethod::Clipboard)
+            },
+            |_| panic!("restore should succeed"),
+        );
+        returned.send(result).unwrap();
+    });
+    assert_eq!(
+        desktop.recv_timeout(timeout).unwrap(),
+        Err(InjectError::ClipboardRecoveryPending)
+    );
+    assert!(recovery.try_recv().is_err());
+    release.send(()).unwrap();
+    assert_eq!(
+        recovery.recv_timeout(timeout).unwrap(),
+        (1, utf16_bytes("Original"))
+    );
+    caller.join().unwrap();
+}
+
+#[test]
+fn late_failures_reach_the_desktop_after_recovery_was_reported_as_pending() {
+    use crate::native::with_background_restore;
+    use std::{sync::mpsc, time::Duration};
+
+    let (late, report) = mpsc::channel();
+    assert_eq!(
+        with_background_restore(
+            |pending| {
+                pending();
+                Err(InjectError::ClipboardRestore)
+            },
+            move |e| late.send(e).unwrap()
+        ),
+        Err(InjectError::ClipboardRecoveryPending)
+    );
+    assert_eq!(
+        report.recv_timeout(Duration::from_secs(5)).unwrap(),
+        InjectError::ClipboardRestore
+    );
 }
 
 #[test]

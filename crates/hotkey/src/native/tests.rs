@@ -1,6 +1,84 @@
 use super::*;
 use crate::HotkeyMode;
 
+#[test]
+fn comparison_uses_a_free_registered_chord_without_displacing_existing_shortcuts() {
+    let config = HotkeyConfig::default();
+    let choose = |config, unavailable: &[&str]| {
+        comparison::choose(config, |key| {
+            !unavailable.contains(&key.to_string().as_str())
+        })
+        .map(|key| key.to_string())
+    };
+    assert_eq!(choose(config, &[]).as_deref(), Some("Strg+Win+F9"));
+    let customized = HotkeyConfig {
+        dictation: "Strg+Win+F9".parse().unwrap(),
+        ..config
+    };
+    assert_eq!(
+        choose(customized, &["Strg+Win+F10"]).as_deref(),
+        Some("Strg+Win+F11")
+    );
+    for prefix in ["Strg", "Win", "Strg+Win"] {
+        let customized = HotkeyConfig {
+            reinsert: prefix.parse().unwrap(),
+            ..config
+        };
+        assert_eq!(choose(customized, &[]).as_deref(), Some("Umschalt+Alt+J"));
+    }
+    let mut attempted = Vec::new();
+    assert!(
+        comparison::choose(config, |key| {
+            assert!(key.warnings().is_empty());
+            attempted.push(key.to_string());
+            false
+        })
+        .is_none()
+    );
+    assert_eq!(
+        attempted,
+        [
+            "Strg+Win+F9",
+            "Strg+Win+F10",
+            "Strg+Win+F11",
+            "Umschalt+Alt+J",
+            "F13"
+        ]
+    );
+}
+
+#[test]
+fn comparison_messages_require_an_available_foreground_outside_shortcut_capture() {
+    let (mut session, events) = session();
+    session.set_target(Target::Available);
+    session.show_changes();
+    assert_eq!(events.try_recv().unwrap(), HotkeyEvent::ShowChanges);
+    session.change(Control::Capture(true));
+    session.show_changes();
+    session.change(Control::Capture(false));
+    session.set_target(Target::Unknown);
+    session.show_changes();
+    assert!(events.try_recv().is_err());
+}
+
+#[test]
+fn comparison_key_repeats_cannot_retarget_its_pending_message() {
+    let editor = HWND(1usize as _);
+    let other = HWND(2usize as _);
+    let mut press = comparison::Press::default();
+    press.key(true, Some(editor));
+    press.key(true, Some(other));
+    assert!(!press.take(other));
+    press.key(false, None);
+    press.key(true, None); // Injected key-down.
+    assert!(!press.take(editor));
+    press.key(false, None);
+    press.key(true, Some(editor));
+    press.key(false, None);
+    assert!(press.take(editor)); // Windows can post WM_HOTKEY after key-up.
+    assert!(!press.take(editor));
+}
+
 fn toggle_feedback() -> (Session, Receiver<(HookNotice, Option<RecordingTicket>)>) {
     let (send, events) = mpsc::channel();
     let config = HotkeyConfig {
@@ -208,6 +286,24 @@ fn altgrs_synthetic_control_never_activates_a_modifier_only_binding() {
     assert_eq!(physical_transition(WM_KEYUP, &input), None);
     input.scanCode = 0x1d;
     assert_eq!(physical_transition(WM_KEYDOWN, &input), Some(true));
+}
+
+#[test]
+#[ignore = "requires a Windows desktop session"]
+fn competing_hooks_get_distinct_registered_comparison_keys_and_release_them() {
+    let config = HotkeyConfig::default();
+    let (first, _) = HotkeyHook::start(config).unwrap();
+    let primary = first
+        .comparison_shortcut()
+        .expect("free comparison shortcut");
+    let (second, _) = HotkeyHook::start(config).unwrap();
+    let alternative = second
+        .comparison_shortcut()
+        .expect("free fallback shortcut");
+    assert_ne!(alternative, primary);
+    drop(first);
+    let (replacement, _) = HotkeyHook::start(config).unwrap();
+    assert_eq!(replacement.comparison_shortcut(), Some(primary));
 }
 
 #[test]

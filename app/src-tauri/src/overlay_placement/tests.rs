@@ -140,16 +140,41 @@ fn placement_preserves_legacy_positions_and_leaves_preferences_to_settings() {
     fs::write(&path, br#"{"preferences":{"showReady":true},"lastMonitor":"main","positions":{"main":{"x":12,"y":17}}}"#).unwrap();
     let mut store = OverlayStore::load(&path).unwrap();
     assert_eq!(
-        store.saved.restored(&monitors(), 160, 36),
+        store.snapshot().restored(&monitors(), 160, 36),
         Some(bounds(12, 57, 160, 36))
     );
     let screens = monitors();
     let dragged = bounds(-1200, 600, 240, 54);
-    store.remember_on(&screens, dragged).unwrap();
+    store
+        .remember_on(&screens, dragged, |result| result.unwrap())
+        .unwrap();
+    store.pending_writes().unwrap().recv().unwrap();
     let reopened = OverlayStore::load(&path).unwrap();
     let data: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
     assert!(data.get("preferences").is_none());
-    assert_eq!(reopened.saved.restored(&screens, 160, 36), Some(dragged));
+    assert_eq!(
+        reopened.snapshot().restored(&screens, 160, 36),
+        Some(dragged)
+    );
+}
+
+#[test]
+fn oversized_overlay_cannot_replace_or_hide_existing_monitor_positions() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("overlay.json");
+    let mut bytes = br#"{"lastMonitor":"main","positions":{"main":{"x":12,"y":17}}}"#.to_vec();
+    bytes.resize(1024 * 1024, b' ');
+    fs::write(&path, &bytes).unwrap();
+    let store = OverlayStore::load(&path).unwrap();
+    assert_eq!(store.snapshot().positions.len(), 1);
+    let mut next = (*store.snapshot()).clone();
+    next.last_monitor = Some("a".repeat(1024 * 1024));
+    assert!(persist(&path, &next).is_err());
+    assert!(fs::read(&path).unwrap() == bytes);
+    bytes.push(b' ');
+    fs::write(&path, &bytes).unwrap();
+    assert!(OverlayStore::load(&path).is_err());
+    assert!(fs::read(&path).unwrap() == bytes);
 }
 
 #[test]
@@ -158,10 +183,47 @@ fn failed_position_write_leaves_in_memory_location_unchanged() {
     let path = dir.path().join("blocked").join("overlay.json");
     let mut store = OverlayStore::load(&path).unwrap();
     std::fs::write(dir.path().join("blocked"), []).unwrap();
-    assert!(
-        store
-            .remember_on(&monitors(), bounds(100, 100, 160, 36))
-            .is_err()
-    );
-    assert!(store.saved.last_monitor.is_none());
+    let (done, result) = std::sync::mpsc::channel();
+    store
+        .remember_on(&monitors(), bounds(100, 100, 160, 36), move |status| {
+            done.send(status).unwrap()
+        })
+        .unwrap();
+    assert!(result.recv().unwrap().is_err());
+    assert!(store.snapshot().last_monitor.is_none());
+}
+
+#[test]
+fn pending_drag_writes_keep_the_overlay_responsive_and_finish_in_order() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let (entered, writes) = mpsc::channel();
+    let (allow, pauses) = mpsc::channel();
+    let mut store = OverlayStore::with_writer(SavedOverlay::default(), move |saved| {
+        entered.send(saved.clone()).unwrap();
+        pauses.recv_timeout(Duration::from_secs(5)).unwrap();
+        Ok(())
+    })
+    .unwrap();
+    let screens = monitors();
+    let first = bounds(100, 100, 160, 36);
+    let second = bounds(-500, 100, 240, 54);
+    store
+        .remember_on(&screens, first, |result| result.unwrap())
+        .unwrap();
+    let writing = writes.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(writing.restored(&screens, 160, 36), Some(first));
+    store
+        .remember_on(&screens, second, |result| result.unwrap())
+        .unwrap();
+    assert_eq!(store.snapshot().restored(&screens, 160, 36), Some(second));
+    let flushed = store.pending_writes().unwrap();
+    assert!(matches!(flushed.try_recv(), Err(mpsc::TryRecvError::Empty)));
+    allow.send(()).unwrap();
+    let writing = writes.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(writing.positions.len(), 2);
+    assert_eq!(writing.restored(&screens, 160, 36), Some(second));
+    allow.send(()).unwrap();
+    flushed.recv_timeout(Duration::from_secs(5)).unwrap();
 }

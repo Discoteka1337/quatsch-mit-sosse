@@ -1,6 +1,8 @@
 use crate::{InjectError, InjectMethod};
 use serde::Deserialize;
 use std::collections::BTreeMap;
+use std::fs::File;
+use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -25,11 +27,22 @@ impl InjectConfig {
     }
 
     pub fn load_from(path: &Path) -> Result<Self, InjectError> {
-        match std::fs::read_to_string(path) {
-            Ok(source) => source.parse(),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
-            Err(_) => Err(InjectError::ConfigRead),
+        const MAX_BYTES: u64 = 1024 * 1024;
+        let file = match File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Self::default()),
+            Err(_) => return Err(InjectError::ConfigRead),
+        };
+        let mut bytes = Vec::new();
+        file.take(MAX_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| InjectError::ConfigRead)?;
+        if bytes.len() as u64 > MAX_BYTES {
+            return Err(InjectError::ConfigTooLarge);
         }
+        std::str::from_utf8(&bytes)
+            .map_err(|_| InjectError::ConfigRead)?
+            .parse()
     }
 
     pub fn method_for(&self, process_name: &str) -> Option<InjectMethod> {

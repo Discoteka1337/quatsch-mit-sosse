@@ -17,8 +17,11 @@ pub(super) enum Action {
     Stop,
     Cancel,
     Reinsert(Option<Target>),
+    ShowChanges(Option<Target>),
+    ComparisonShortcutUpdated,
     Elevated,
     TargetAvailable,
+    ForegroundBlocked,
     TargetUnavailable,
     Unavailable,
 }
@@ -27,7 +30,24 @@ pub(super) enum Action {
 pub(super) struct Target(InsertTarget);
 
 impl Target {
-    pub(super) fn insert(self, text: &str, cursor: Option<usize>) -> Result<(), InjectError> {
+    pub(super) fn from_window(hwnd: HWND) -> Result<Self, InjectError> {
+        InsertTarget::from_window(hwnd).map(Self)
+    }
+
+    pub(super) fn check_foreground(self) -> Result<(), InjectError> {
+        self.0.check_foreground()
+    }
+
+    pub(super) fn restore(self, owner: HWND) -> Result<(), InjectError> {
+        self.0.restore_after_menu(owner)
+    }
+
+    pub(super) fn insert(
+        self,
+        text: String,
+        cursor: Option<usize>,
+        on_late_error: impl FnOnce(InjectError) + Send + 'static,
+    ) -> Result<(), InjectError> {
         self.0.check_foreground()?;
         // A repeat shortcut fires on key-down. SendInput must see released modifiers.
         await_release(
@@ -40,7 +60,7 @@ impl Target {
             100,
         )?;
         self.0
-            .insert_with_cursor(text, &InjectConfig::load()?, cursor)?;
+            .insert_with_cursor(text, InjectConfig::load()?, cursor, on_late_error)?;
         Ok(())
     }
 }
@@ -92,8 +112,8 @@ fn surface(hwnd: HWND, available: bool) -> Surface {
     if !available || own || matches!(name.as_str(), "Progman" | "WorkerW") {
         return Surface::Blocked;
     }
-    InsertTarget::from_window(hwnd)
-        .map(|target| Surface::External(Target(target)))
+    Target::from_window(hwnd)
+        .map(Surface::External)
         .unwrap_or(Surface::Blocked)
 }
 
@@ -129,6 +149,45 @@ pub(super) struct Shortcuts {
     dispatch: Arc<dyn Fn(Action) + Send + Sync>,
 }
 
+fn action_for_notice(
+    notice: HookNotice,
+    ticket: Option<RecordingTicket>,
+    current: &mut Option<Target>,
+    focus: &Mutex<Focus>,
+) -> Action {
+    match notice {
+        HookNotice::Foreground { window, available } => {
+            let surface = surface(HWND(window as _), available);
+            *current = match surface {
+                Surface::External(target) => Some(target),
+                _ => None,
+            };
+            focus
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .observe(surface);
+            if available {
+                Action::TargetAvailable
+            } else {
+                Action::ForegroundBlocked
+            }
+        }
+        HookNotice::Action(event) => match event {
+            HotkeyEvent::Start => {
+                Action::Start(*current, ticket.expect("Start carries a recording ticket"))
+            }
+            HotkeyEvent::Stop => Action::Stop,
+            HotkeyEvent::Cancel => Action::Cancel,
+            HotkeyEvent::ReinsertLast => Action::Reinsert(*current),
+            HotkeyEvent::ShowChanges => Action::ShowChanges(*current),
+            HotkeyEvent::ElevatedTarget => Action::Elevated,
+        },
+        HookNotice::ComparisonShortcutUpdated => Action::ComparisonShortcutUpdated,
+        HookNotice::Unavailable => Action::TargetUnavailable,
+        HookNotice::Stopped => Action::Unavailable,
+    }
+}
+
 impl Shortcuts {
     pub(super) fn start(
         config: HotkeyConfig,
@@ -140,34 +199,12 @@ impl Shortcuts {
         let hook_focus = focus.clone();
         let mut current = None;
         let hook = HotkeyHook::start_with_feedback(config, move |notice, ticket| {
-            let action = match notice {
-                HookNotice::Foreground { window, available } => {
-                    let surface = surface(HWND(window as _), available);
-                    current = match surface {
-                        Surface::External(target) => Some(target),
-                        _ => None,
-                    };
-                    hook_focus
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .observe(surface);
-                    if available {
-                        hook_dispatch(Action::TargetAvailable);
-                    }
-                    return;
-                }
-                HookNotice::Action(event) => match event {
-                    HotkeyEvent::Start => {
-                        Action::Start(current, ticket.expect("Start carries a recording ticket"))
-                    }
-                    HotkeyEvent::Stop => Action::Stop,
-                    HotkeyEvent::Cancel => Action::Cancel,
-                    HotkeyEvent::ReinsertLast => Action::Reinsert(current),
-                    HotkeyEvent::ElevatedTarget => Action::Elevated,
-                },
-                HookNotice::Unavailable => Action::TargetUnavailable,
-                HookNotice::Stopped => Action::Unavailable,
-            };
+            let action = action_for_notice(notice, ticket, &mut current, &hook_focus);
+            if matches!(action, Action::ShowChanges(None))
+                && crate::comparison_window::is_window(unsafe { GetForegroundWindow() })
+            {
+                return;
+            }
             hook_dispatch(action);
         })?;
         Ok(Self {
@@ -179,6 +216,10 @@ impl Shortcuts {
 
     pub(super) fn configure(&self, config: HotkeyConfig) -> std::io::Result<()> {
         self.hook.configure(config)
+    }
+
+    pub(super) fn comparison_shortcut(&self) -> Option<quatsch_mit_sosse_hotkey::Hotkey> {
+        self.hook.comparison_shortcut()
     }
 
     pub(super) fn capture(&self, active: bool) -> std::io::Result<()> {

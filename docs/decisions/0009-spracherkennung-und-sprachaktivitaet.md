@@ -30,6 +30,15 @@ Das WAV-Beispiel schreibt das gewünschte Ergebnis ausschließlich als private P
 
 ## Windows-Build
 
+Die gebündelte sherpa-DLL öffnet Modellpfade über schmale Zeichenketten.
+Damit sie die von Rust übergebenen UTF-8-Pfade auch in einem Windows-Profil
+mit Umlauten oder ß auflösen kann, ergänzt der MSVC-Build das
+[UTF-8-Manifestfragment](../../crates/vad/utf8-paths.manifest) in den ausführbaren
+VAD-, STT- und Benchmark-Targets. Die Einstellung gilt für den jeweiligen
+Prozess. Beim Einbinden der Erkennung in die Desktop-App in Schritt 2.4
+muss deren Anwendungsmanifest dieselbe Einstellung übernehmen. Das gilt
+ebenso für weitere Windows-Programme, die die Bibliothek einbetten.
+
 Die native Bibliothek wird nur beim Einrichten/Bauen durch die Abhängigkeit heruntergeladen und anhand ihrer hinterlegten SHA256 geprüft. LLVM/Clang bleibt für Bindgen erforderlich. Das ist eine Build-Abhängigkeit, kein Netzwerkpfad in der Anwendung.
 
 Cargo 1.100 hat sein internes Build-Verzeichnislayout geändert. sherpa-rs-sys 0.6.8 erwartet beim DLL-Kopieren weiterhin vorhandene `debug/deps` beziehungsweise `release/deps`. `Import-MsvcEnvironment` legt deshalb diese Ordner und die Beispielordner vor dem Build an, auch wenn MSVC schon initialisiert ist. Die bestehenden Entwickler- und Prüfbefehle verwenden dieses Skript. Ein gewähltes `CARGO_TARGET_DIR` mit Leerzeichen oder Umlauten bleibt beim Import erhalten. Es erfolgt kein Eingriff in die Cargo-Registry, kein Downgrade und kein Austausch nativer Binärdateien. Bei künftigem sherpa-Update ist dieser Kompatibilitätsschritt erneut zu prüfen.

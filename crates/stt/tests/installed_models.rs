@@ -5,7 +5,9 @@ use std::{
 };
 
 use quatsch_mit_sosse_models::Manager;
-use quatsch_mit_sosse_stt::{EngineConfig, create_engine};
+use quatsch_mit_sosse_stt::{
+    EngineConfig, SpeechEngine, TransducerEngine, WhisperEngine, create_engine,
+};
 
 #[test]
 #[ignore = "Benötigt lokal installiertes silero-vad."]
@@ -16,20 +18,41 @@ fn silence_skips_recognition_without_an_asr_model() {
         .unwrap()
         .expect("silero-vad muss installiert sein.");
     let temporary = tempfile::tempdir().unwrap();
-    let vad_directory = temporary.path().join("silero-vad");
-    fs::create_dir(&vad_directory).unwrap();
+    let root = temporary.path().join("Modellordner mit Soße");
+    let vad_directory = root.join("silero-vad");
+    fs::create_dir_all(&vad_directory).unwrap();
     for filename in [".installed.json", "silero_vad.onnx"] {
         fs::copy(installed.join(filename), vad_directory.join(filename)).unwrap();
     }
 
     let samples = vec![0.0; 32_000];
-    for id in ["parakeet-primeline-de-int8", "whisper-large-v3-turbo"] {
-        let manager = Manager::with_root(temporary.path().to_owned()).unwrap();
-        assert!(!manager.is_installed(id).unwrap());
-        let mut engine = create_engine(manager, id, EngineConfig::default()).unwrap();
-        let transcript = engine.transcribe(&samples, 16_000, Some("de")).unwrap();
-        assert!(transcript.text.is_empty());
+    let manager = || Manager::with_root(root.clone()).unwrap();
+    assert!(
+        !manager()
+            .is_installed("parakeet-primeline-de-int8")
+            .unwrap()
+    );
+    assert!(!manager().is_installed("whisper-large-v3-turbo").unwrap());
+    let mut transducer = TransducerEngine::with_manager(
+        manager(),
+        "parakeet-primeline-de-int8",
+        EngineConfig::default(),
+    )
+    .unwrap();
+    let mut whisper =
+        WhisperEngine::with_manager(manager(), "whisper-large-v3-turbo", EngineConfig::default())
+            .unwrap();
+    for engine in [&mut transducer as &mut dyn SpeechEngine, &mut whisper] {
+        assert!(
+            engine
+                .transcribe(&samples, 16_000, Some("de"))
+                .unwrap()
+                .text
+                .is_empty()
+        );
     }
+    assert!(!transducer.is_loaded());
+    assert!(!whisper.is_loaded());
 }
 
 fn transcribe_installed_model(model_id: &str) {

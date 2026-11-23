@@ -1,6 +1,8 @@
-use crate::{OverlayState, messages};
+use crate::{OverlayState, comparison::DictationRecord, messages};
+use std::sync::Arc;
 
 mod dictionary;
+mod review;
 mod runtime;
 use dictionary::Transcript;
 pub(super) use runtime::{Controller, report_error};
@@ -42,6 +44,8 @@ trait Ports {
         text: &str,
         cursor: Option<usize>,
     ) -> Result<(), String>;
+    fn compare(&mut self, target: Self::Target, record: Arc<DictationRecord>)
+    -> Result<(), String>;
     fn show(&mut self, state: OverlayState);
 }
 
@@ -49,14 +53,14 @@ enum Phase<T> {
     Idle,
     Recording { model: &'static str, target: T },
     Recognizing { target: Option<T> },
-    Inserting,
+    Inserting { text: String },
 }
 
 struct Session<P: Ports> {
     ports: P,
     phase: Phase<P::Target>,
-    last: String,
-    last_cursor: Option<usize>,
+    history: Vec<Arc<DictationRecord>>,
+    last_insertable: Option<Arc<DictationRecord>>,
     warning: Option<String>,
     administrator_hint: bool,
 }
@@ -66,8 +70,8 @@ impl<P: Ports> Session<P> {
         Self {
             ports,
             phase: Phase::Idle,
-            last: String::new(),
-            last_cursor: None,
+            history: Vec::new(),
+            last_insertable: None,
             warning: None,
             administrator_hint: false,
         }
@@ -132,11 +136,20 @@ impl<P: Ports> Session<P> {
         }
     }
 
-    fn elevated(&mut self) {
+    fn discard_target(&mut self) {
         self.cancel();
         if let Phase::Recognizing { target } = &mut self.phase {
             *target = None;
         }
+    }
+
+    fn unavailable(&mut self, message: String) {
+        self.discard_target();
+        self.error(message);
+    }
+
+    fn elevated(&mut self) {
+        self.discard_target();
         self.show(OverlayState::Administrator);
     }
 
@@ -144,7 +157,7 @@ impl<P: Ports> Session<P> {
         if self.administrator_hint {
             let state = match self.phase {
                 Phase::Recognizing { .. } => OverlayState::Processing,
-                Phase::Inserting => OverlayState::Inserting,
+                Phase::Inserting { .. } => OverlayState::Inserting,
                 _ => OverlayState::Ready,
             };
             self.show(state);
@@ -157,13 +170,14 @@ impl<P: Ports> Session<P> {
         };
         self.phase = Phase::Idle;
         match result {
-            Ok(transcript) if transcript.heard_speech => {
+            Ok(transcript) if !transcript.record.original.trim().is_empty() => {
                 self.warning = transcript.warning;
-                if transcript.text.is_empty() {
+                let record = Arc::new(transcript.record);
+                self.history.push(record.clone());
+                if record.finished.is_empty() {
                     self.show(OverlayState::Ready);
                 } else {
-                    self.last = transcript.text;
-                    self.last_cursor = transcript.cursor;
+                    self.last_insertable = Some(record);
                     self.repeat(target);
                 }
             }
@@ -176,38 +190,91 @@ impl<P: Ports> Session<P> {
         if !matches!(self.phase, Phase::Idle) {
             return;
         }
-        if self.last.is_empty() {
+        let Some(record) = self.last_insertable.clone() else {
             self.error(messages().no_last_text.clone());
-        } else if let Some(target) = target {
-            self.show(OverlayState::Inserting);
-            match self.ports.insert(target, &self.last, self.last_cursor) {
-                Ok(()) => self.phase = Phase::Inserting,
-                Err(message) => self.error(message),
-            }
+            return;
+        };
+        if let Some(target) = target {
+            self.insert(target, &record.finished, record.cursor);
         } else {
             self.error(messages().target_unavailable.clone());
         }
     }
 
+    fn compare(&mut self, target: Option<P::Target>) {
+        if !matches!(self.phase, Phase::Idle) {
+            return;
+        }
+        let Some(record) = self.history.last().cloned() else {
+            self.error(messages().no_comparison.clone());
+            return;
+        };
+        let Some(target) = target else {
+            self.error(messages().target_unavailable.clone());
+            return;
+        };
+        if let Err(message) = self.ports.compare(target, record) {
+            self.error(message);
+        }
+    }
+
+    fn insert_original(&mut self, target: P::Target, original: &str) {
+        if matches!(self.phase, Phase::Idle) {
+            self.insert(target, original, None);
+        } else {
+            self.show(OverlayState::Error {
+                message: messages().original_busy.clone(),
+                text: original.to_owned(),
+            });
+        }
+    }
+
+    fn insert(&mut self, target: P::Target, text: &str, cursor: Option<usize>) {
+        self.show(OverlayState::Inserting);
+        match self.ports.insert(target, text, cursor) {
+            Ok(()) => {
+                self.phase = Phase::Inserting {
+                    text: text.to_owned(),
+                }
+            }
+            Err(message) => self.show(OverlayState::Error {
+                message,
+                text: text.to_owned(),
+            }),
+        }
+    }
+
     fn inserted(&mut self, result: Result<(), String>) {
+        let Phase::Inserting { text } = &mut self.phase else {
+            return;
+        };
+        let text = std::mem::take(text);
         self.phase = Phase::Idle;
         match result {
             Ok(()) => self.show(OverlayState::Ready),
-            Err(message) => self.error(message),
+            Err(message) => self.show(OverlayState::Error { message, text }),
         }
     }
 
     fn error(&mut self, message: String) {
         self.show(OverlayState::Error {
             message,
-            text: self.last.clone(),
+            text: self
+                .last_insertable
+                .as_ref()
+                .map(|record| record.finished.clone())
+                .unwrap_or_default(),
         });
     }
 
     fn show(&mut self, state: OverlayState) {
         self.administrator_hint = matches!(state, OverlayState::Administrator);
+        let text = self
+            .last_insertable
+            .as_ref()
+            .map_or("", |record| record.finished.as_str());
         self.ports
-            .show(with_warning(state, &mut self.warning, &self.last));
+            .show(with_warning(state, &mut self.warning, text));
     }
 }
 

@@ -228,8 +228,11 @@ impl TransducerEngine {
         Engine::new(manager, model_id, Kind::Transducer, config).map(Self)
     }
 
+    /// Returns whether the ASR model is resident. Silero has a separate lifetime.
     pub fn is_loaded(&self) -> bool {
-        self.0.session.is_loaded()
+        self.0
+            .session
+            .is_loaded(|session| session.recognizer.is_some())
     }
 }
 
@@ -260,8 +263,11 @@ impl WhisperEngine {
         Engine::new(manager, model_id, Kind::Whisper, config).map(Self)
     }
 
+    /// Returns whether the ASR model is resident. Silero has a separate lifetime.
     pub fn is_loaded(&self) -> bool {
-        self.0.session.is_loaded()
+        self.0
+            .session
+            .is_loaded(|session| session.recognizer.is_some())
     }
 }
 

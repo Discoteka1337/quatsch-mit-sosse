@@ -1,16 +1,20 @@
-use crate::{InjectConfig, InjectError, InjectMethod, clipboard, is_long, keyboard, route, uia};
+use crate::{InjectConfig, InjectError, InjectMethod, clipboard, keyboard, route, uia};
+use std::cell::Cell;
 use std::ffi::OsString;
 use std::os::windows::ffi::OsStringExt;
 use std::path::Path;
-use std::sync::Mutex;
-use windows::Win32::Foundation::HWND;
+use std::sync::{Mutex, mpsc};
+use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::System::Threading::{
     OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
+    GetForegroundWindow, GetWindowThreadProcessId, SMTO_ABORTIFHUNG, SMTO_BLOCK,
+    SendMessageTimeoutW, SetForegroundWindow, WM_NULL,
 };
 use windows::core::{Owned, PWSTR};
+
+static INSERTION: Mutex<()> = Mutex::new(());
 
 /// An opaque window identity that can travel from the hotkey to the recognition worker.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,14 +54,31 @@ impl InsertTarget {
         }
     }
 
-    /// Restore a known application after the user selected the tray menu command.
+    /// Restore the captured editor only while the initiating menu or review owns the foreground.
     pub fn restore_after_menu(self, menu_owner: HWND) -> Result<(), InjectError> {
         if self.check_foreground().is_err() {
             self.verify_window()?;
             if menu_owner.is_invalid() || unsafe { GetForegroundWindow() } != menu_owner {
                 return Err(InjectError::TargetChanged);
             }
-            let _ = unsafe { SetForegroundWindow(self.hwnd()) };
+            let accepted = unsafe { SetForegroundWindow(self.hwnd()).as_bool() };
+            return confirm_activation(
+                accepted,
+                || self.check_foreground(),
+                || unsafe {
+                    // Activation of a different input queue can finish after SetForegroundWindow
+                    // returns. A bounded, synchronous no-op lets that queue process the request.
+                    SendMessageTimeoutW(
+                        self.hwnd(),
+                        WM_NULL,
+                        WPARAM(0),
+                        LPARAM(0),
+                        SMTO_ABORTIFHUNG | SMTO_BLOCK,
+                        180,
+                        None,
+                    );
+                },
+            );
         }
         self.check_foreground()
     }
@@ -76,49 +97,110 @@ impl InsertTarget {
         text: &str,
         config: &InjectConfig,
         cursor: Option<usize>,
+        on_restore_delay: &dyn Fn(),
     ) -> Result<InjectMethod, InjectError> {
         self.check_foreground()?;
-        let forced = if config.apps.is_empty() || is_long(text) {
-            None
-        } else {
-            config.method_for(&process_name(self.process_id)?)
-        };
-        route(text, forced, |method| {
-            self.check_foreground()?;
-            match method {
-                InjectMethod::UiAutomation => uia::insert(self, text, cursor),
-                InjectMethod::Unicode => uia::with_caret(self, text, cursor, || {
-                    keyboard::insert(self, text).map(|()| true)
-                }),
-                InjectMethod::Clipboard => uia::with_caret(self, text, cursor, || {
-                    clipboard::paste(self, text).map(|()| true)
-                }),
-            }
-        })
+        route(
+            text,
+            config,
+            || process_name(self.process_id),
+            |method| {
+                self.check_foreground()?;
+                match method {
+                    InjectMethod::UiAutomation => uia::insert(self, text, cursor),
+                    InjectMethod::Unicode => uia::with_caret(self, text, cursor, || {
+                        keyboard::insert(self, text).map(|()| true)
+                    }),
+                    InjectMethod::Clipboard => uia::with_caret(self, text, cursor, || {
+                        // A delayed restoration may finish long after the user resumes editing.
+                        let prompt = Cell::new(true);
+                        clipboard::paste(self, text, &|| {
+                            prompt.set(false);
+                            on_restore_delay();
+                        })?;
+                        Ok(prompt.get())
+                    }),
+                }
+            },
+        )
     }
 
     /// Run the insertion on a dedicated COM thread bound to the captured window.
     pub fn insert(self, text: &str, config: &InjectConfig) -> Result<InjectMethod, InjectError> {
-        self.insert_with_cursor(text, config, None)
+        let _guard = INSERTION.try_lock().map_err(|_| InjectError::Busy)?;
+        std::thread::scope(|scope| {
+            let worker = std::thread::Builder::new()
+                .name("qms-inject".into())
+                .spawn_scoped(scope, move || self.deliver(text, config, None, &|| {}))
+                .map_err(|_| InjectError::Unavailable)?;
+            worker.join().unwrap_or(Err(InjectError::DeliveryUncertain))
+        })
+    }
+
+    /// Return to the desktop if another process keeps the clipboard locked after
+    /// delivery. The worker retains the snapshot and reports later errors.
+    pub fn insert_with_background_restore(
+        self,
+        text: String,
+        config: InjectConfig,
+        on_late_error: impl FnOnce(InjectError) + Send + 'static,
+    ) -> Result<InjectMethod, InjectError> {
+        self.insert_with_cursor(text, config, None, on_late_error)
     }
 
     /// Insert once and request a caret at the UTF-8 byte offset if the target supports it.
     pub fn insert_with_cursor(
         self,
-        text: &str,
-        config: &InjectConfig,
+        text: String,
+        config: InjectConfig,
         cursor: Option<usize>,
+        on_late_error: impl FnOnce(InjectError) + Send + 'static,
     ) -> Result<InjectMethod, InjectError> {
-        static INSERTION: Mutex<()> = Mutex::new(());
         let _guard = INSERTION.try_lock().map_err(|_| InjectError::Busy)?;
-        std::thread::scope(|scope| {
-            let worker = std::thread::Builder::new()
-                .name("qms-inject".into())
-                .spawn_scoped(scope, move || self.deliver(text, config, cursor))
-                .map_err(|_| InjectError::Unavailable)?;
-            worker.join().unwrap_or(Err(InjectError::DeliveryUncertain))
-        })
+        with_background_restore(
+            move |pending| self.deliver(&text, &config, cursor, pending),
+            on_late_error,
+        )
     }
+}
+
+fn confirm_activation(
+    accepted: bool,
+    foreground: impl Fn() -> Result<(), InjectError>,
+    synchronize: impl FnOnce(),
+) -> Result<(), InjectError> {
+    let immediate = foreground();
+    if !accepted || immediate.is_ok() {
+        return immediate;
+    }
+    synchronize();
+    foreground()
+}
+
+pub(super) fn with_background_restore(
+    deliver: impl FnOnce(&dyn Fn()) -> Result<InjectMethod, InjectError> + Send + 'static,
+    on_late_error: impl FnOnce(InjectError) + Send + 'static,
+) -> Result<InjectMethod, InjectError> {
+    let (reply, result) = mpsc::channel();
+    std::thread::Builder::new()
+        .name("qms-inject".into())
+        .spawn(move || {
+            let pending = Cell::new(false);
+            let outcome = deliver(&|| {
+                if !pending.replace(true) {
+                    let _ = reply.send(Err(InjectError::ClipboardRecoveryPending));
+                }
+            });
+            if pending.get() {
+                if let Err(error) = outcome {
+                    on_late_error(error);
+                }
+            } else {
+                let _ = reply.send(outcome);
+            }
+        })
+        .map_err(|_| InjectError::Unavailable)?;
+    result.recv().unwrap_or(Err(InjectError::DeliveryUncertain))
 }
 
 fn process_name(process_id: u32) -> Result<String, InjectError> {
@@ -158,6 +240,30 @@ mod tests {
     use super::*;
     use windows::Win32::UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, GetWindowTextW};
     use windows::core::w;
+
+    #[test]
+    fn waits_for_the_target_queue_only_after_an_accepted_deferred_activation() {
+        for (accepted, immediate, final_match, expected_wait, confirmed) in [
+            (false, false, false, false, false),
+            (false, true, true, false, true),
+            (true, true, true, false, true),
+            (true, false, true, true, true),
+            (true, false, false, true, false),
+        ] {
+            let waited = Cell::new(false);
+            let outcome = confirm_activation(
+                accepted,
+                || {
+                    (immediate || waited.get() && final_match)
+                        .then_some(())
+                        .ok_or(InjectError::TargetChanged)
+                },
+                || waited.set(true),
+            );
+            assert_eq!(waited.get(), expected_wait);
+            assert_eq!(outcome.is_ok(), confirmed);
+        }
+    }
 
     #[test]
     fn retained_target_rejects_a_different_owner_or_a_closed_window() {

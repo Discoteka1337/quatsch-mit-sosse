@@ -63,6 +63,7 @@ pub enum HotkeyEvent {
     /// Discard the recording, including any pending insertion.
     Cancel,
     ReinsertLast,
+    ShowChanges,
     /// The foreground process has a higher integrity level than this process.
     ElevatedTarget,
 }

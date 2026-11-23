@@ -129,6 +129,7 @@ struct FakeRecorder {
     calls: Vec<&'static str>,
     takes: usize,
     fail_finish: bool,
+    interrupt_first_take: bool,
 }
 
 impl Recorder for FakeRecorder {
@@ -146,6 +147,12 @@ impl Recorder for FakeRecorder {
         if self.fail_finish {
             return Err(io::Error::other("Synthetische Audiounterbrechung"));
         }
+        if self.interrupt_first_take && self.takes == 1 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Synthetischer Gerätewechsel",
+            ));
+        }
         // The prefix represents audio already buffered before the start key.
         let mut samples = vec![-0.25; 8_000];
         samples.extend(vec![self.takes as f32 / 10.0; 160_000]);
@@ -156,6 +163,7 @@ impl Recorder for FakeRecorder {
 struct FakeInterface {
     keys: VecDeque<Key>,
     output: String,
+    fail_after_start: bool,
 }
 
 impl FakeInterface {
@@ -163,12 +171,16 @@ impl FakeInterface {
         Self {
             keys: keys.into_iter().collect(),
             output: String::new(),
+            fail_after_start: false,
         }
     }
 }
 
 impl Interface for FakeInterface {
     fn write(&mut self, message: &str) -> io::Result<()> {
+        if self.fail_after_start && message.starts_with("Aufnahme läuft") {
+            return Err(io::Error::other("Testausgabe geschlossen"));
+        }
         self.output.push_str(message);
         Ok(())
     }
@@ -281,6 +293,43 @@ fn audio_failure_cannot_become_a_saved_take() {
     let mut ui = FakeInterface::new([Key::Enter, Key::Enter, Key::Enter]);
     assert!(run_session(&items[..1], &mut recorder, &mut ui, &store).is_err());
     assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn failed_console_output_after_start_finishes_and_discards_the_active_take() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = CorpusStore::new(temp.path().to_owned());
+    let items = build_items(&sentences()).unwrap();
+    let mut recorder = FakeRecorder::default();
+    let mut ui = FakeInterface::new([Key::Enter]);
+    ui.fail_after_start = true;
+    assert!(run_session(&items[..1], &mut recorder, &mut ui, &store).is_err());
+    assert_eq!(recorder.calls, ["prepare", "start", "finish"]);
+    assert!(!store.contains(&items[0]).unwrap());
+}
+
+#[test]
+fn interrupted_take_can_be_retried_skipped_or_discarded_without_ending_the_session() {
+    for key in [Key::Enter, Key::Repeat, Key::Skip, Key::Quit] {
+        let temp = tempfile::tempdir().unwrap();
+        let store = CorpusStore::new(temp.path().to_owned());
+        let items = build_items(&sentences()).unwrap();
+        let mut recorder = FakeRecorder {
+            interrupt_first_take: true,
+            ..Default::default()
+        };
+        let mut ui = FakeInterface::new([Key::Enter, key, Key::Enter, Key::Enter, Key::Enter]);
+        let result = run_session(&items[..1], &mut recorder, &mut ui, &store).unwrap();
+        let retried = matches!(key, Key::Enter | Key::Repeat);
+        assert_eq!(result.saved, usize::from(retried));
+        assert_eq!(result.skipped, usize::from(key == Key::Skip));
+        assert_eq!(result.aborted, key == Key::Quit);
+        assert_eq!(recorder.takes, if retried { 2 } else { 1 });
+        assert_eq!(store.contains(&items[0]).unwrap(), retried);
+        if key == Key::Enter {
+            assert!(ui.output.contains("Bitte diesen Satz wiederholen."));
+        }
+    }
 }
 
 #[test]

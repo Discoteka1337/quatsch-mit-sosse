@@ -68,3 +68,44 @@ fn review_ranges_point_to_each_occurrence_in_the_finished_utf8_text() {
     pipeline.set_enabled(Rule::SelfCorrections, false);
     assert!(pipeline.apply_with_review(input).uncertain.is_empty());
 }
+
+#[test]
+fn number_formatting_preserves_words_inside_addresses_and_paths() {
+    let pipeline = Pipeline::new([Rule::Numbers]);
+    assert_eq!(
+        pipeline.apply("dreizehn+post@beispiel.de https://beispiel.de/vierzehn dreizehn.de C:\\Post\\zwanzig für dreizehn Personen"),
+        "dreizehn+post@beispiel.de https://beispiel.de/vierzehn dreizehn.de C:\\Post\\zwanzig für 13 Personen"
+    );
+}
+
+#[test]
+fn an_ambiguous_correction_never_replaces_just_the_suffix_of_an_address() {
+    let pipeline = Pipeline::new([Rule::SelfCorrections]);
+    for text in [
+        "Schreib an post@beispiel.de, nein, ich meine Post.",
+        "Rufe beispiel.de, nein, ich meine Post.",
+        "Schreib an post@beispiel.de, streich das.",
+    ] {
+        let result = pipeline.apply_with_review(text);
+        assert_eq!(result.text, text);
+        assert_eq!(result.uncertain.len(), 1);
+    }
+}
+
+#[test]
+fn punctuation_keeps_a_standalone_address_or_file_path_ready_to_paste() {
+    let pipeline = Pipeline::new([Rule::Punctuation]);
+    for text in [
+        "post+abteilung@example.de",
+        "https://example.de/suche?q=grün",
+        "beispiel.de",
+        "pfad/ZurDatei",
+        "  c:\\Post\\Abholung.txt\r\n",
+    ] {
+        assert_eq!(pipeline.apply(text), text);
+    }
+    assert_eq!(
+        pipeline.apply("antwort an post@example.de"),
+        "Antwort an post@example.de."
+    );
+}

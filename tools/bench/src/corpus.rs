@@ -12,6 +12,23 @@ pub struct Recording {
     pub reference: String,
 }
 
+/// Compares the exact in-memory inputs of the parent and its model workers.
+pub fn fingerprint(recordings: &[Recording]) -> String {
+    use sha2::{Digest, Sha256};
+
+    let mut hash = Sha256::new();
+    for recording in recordings {
+        hash.update(recording.id.to_le_bytes());
+        hash.update((recording.reference.len() as u64).to_le_bytes());
+        hash.update(recording.reference.as_bytes());
+        hash.update((recording.samples.len() as u64).to_le_bytes());
+        for sample in &recording.samples {
+            hash.update(sample.to_le_bytes());
+        }
+    }
+    format!("{:x}", hash.finalize())
+}
+
 pub fn load_corpus(directory: &Path) -> Result<Vec<Recording>, &'static str> {
     let entries = fs::read_dir(directory).map_err(|_| "Der private Korpus ist nicht lesbar.")?;
     let mut pairs: BTreeMap<u16, [Option<PathBuf>; 2]> = BTreeMap::new();

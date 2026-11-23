@@ -1,6 +1,35 @@
 use super::*;
 
 #[test]
+fn unqueryable_foreground_invalidates_the_pending_target_even_without_a_keypress() {
+    use windows::Win32::UI::WindowsAndMessaging::GetDesktopWindow;
+    let former = Target(InsertTarget::from_window(unsafe { GetDesktopWindow() }).unwrap());
+    let focus = Mutex::new(Focus {
+        last_external: Some(former),
+        menu_target: Some(former),
+    });
+    let mut current = Some(former);
+    let action = action_for_notice(
+        HookNotice::Foreground {
+            window: 0,
+            available: false,
+        },
+        None,
+        &mut current,
+        &focus,
+    );
+    assert!(matches!(action, Action::ForegroundBlocked));
+    assert!(current.is_none());
+    assert!(
+        focus
+            .lock()
+            .unwrap()
+            .tray_selection(Surface::Tray)
+            .is_none()
+    );
+}
+
+#[test]
 fn only_tray_surfaces_preserve_the_previous_application() {
     for name in [
         "Shell_TrayWnd",
@@ -75,5 +104,22 @@ fn menu_command_never_follows_a_switch_to_an_unrelated_window() {
     assert_eq!(focus.tray_selection(Surface::Tray), None);
     for window in windows {
         unsafe { DestroyWindow(window).unwrap() }
+    }
+}
+
+#[test]
+fn comparison_receives_the_foreground_at_the_time_of_the_hotkey() {
+    use windows::Win32::UI::WindowsAndMessaging::GetDesktopWindow;
+    let editor = Target(InsertTarget::from_window(unsafe { GetDesktopWindow() }).unwrap());
+    let focus = Mutex::new(Focus::default());
+    for expected in [Some(editor), None] {
+        let mut current = expected;
+        let action = action_for_notice(
+            HookNotice::Action(HotkeyEvent::ShowChanges),
+            None,
+            &mut current,
+            &focus,
+        );
+        assert!(matches!(action, Action::ShowChanges(target) if target == expected));
     }
 }

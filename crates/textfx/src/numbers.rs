@@ -95,7 +95,9 @@ fn magnitude(first: &str, input: &[Token]) -> Option<(u64, usize)> {
             _ => break,
         };
         if scale >= last_scale {
-            break;
+            // The last parsed group belongs to a new amount ("zwei Millionen
+            // drei Milliarden"). Leave its space and numeral in the input.
+            return Some((total, end - 2));
         }
         total += group * scale;
         end += 2;

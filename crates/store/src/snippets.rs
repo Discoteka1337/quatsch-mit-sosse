@@ -3,7 +3,7 @@ use std::{
     io::{Read, Write},
 };
 
-use quatsch_mit_sosse_textfx::snippet_trigger_key;
+use quatsch_mit_sosse_textfx::{same_snippet_numbers, snippet_trigger_key};
 use rusqlite::{Connection, Row, Transaction, TransactionBehavior, params};
 use serde::Deserialize;
 
@@ -83,20 +83,20 @@ fn find_trigger(
     key: &str,
     trigger: &str,
     exact_only: bool,
-) -> Result<Option<i64>> {
+) -> Result<Option<(i64, String)>> {
     let mut statement = db.prepare_cached(
-        "SELECT id, trigger=?2 AS exact FROM snippets
+        "SELECT id, trigger, trigger=?2 AS exact FROM snippets
          WHERE trigger_key=?1 AND (NOT ?3 OR trigger=?2) ORDER BY exact DESC, id LIMIT 2",
     )?;
     let mut rows = statement.query(params![key, trigger.trim(), exact_only])?;
     let Some(first) = rows.next()? else {
         return Ok(None);
     };
-    let id = first.get(0)?;
-    if !first.get::<_, bool>(1)? && rows.next()?.is_some() {
+    let found = (first.get(0)?, first.get(1)?);
+    if !first.get::<_, bool>(2)? && rows.next()?.is_some() {
         return Err(Error::DuplicateTrigger);
     }
-    Ok(Some(id))
+    Ok(Some(found))
 }
 
 impl Store {
@@ -126,7 +126,7 @@ impl Store {
     fn save_snippet(&self, id: Option<i64>, draft: &SnippetDraft) -> Result<i64> {
         let key = draft.checked_key()?;
         let tx = Transaction::new_unchecked(&self.db, TransactionBehavior::Immediate)?;
-        if let Some(existing) = find_trigger(&tx, &key, &draft.trigger, false)?
+        if let Some((existing, _)) = find_trigger(&tx, &key, &draft.trigger, false)?
             && Some(existing) != id
         {
             return Err(Error::DuplicateTrigger);
@@ -148,7 +148,7 @@ impl Store {
             created_at: Option<i64>,
         }
 
-        let mut reader = csv::Reader::from_reader(reader);
+        let mut reader = csv_io::import_reader(reader)?;
         let headers = reader.headers().map_err(|_| Error::InvalidCsv)?;
         csv_io::validate_headers(headers, &["trigger", "text"], &HEADERS)?;
         let tx = self
@@ -166,8 +166,13 @@ impl Store {
             // If a file explicitly contains distinct spellings of one spoken
             // trigger, keep both: databases migrated from version 1 can contain them.
             let repeated = !seen.insert(key.clone());
-            let id = find_trigger(&tx, &key, &draft.trigger, repeated)?;
-            draft.save(&tx, id, &key, entry.created_at)?;
+            let found = find_trigger(&tx, &key, &draft.trigger, repeated)?;
+            if let Some((_, stored)) = &found
+                && !same_snippet_numbers(stored, &draft.trigger)
+            {
+                return Err(Error::DuplicateTrigger);
+            }
+            draft.save(&tx, found.map(|(id, _)| id), &key, entry.created_at)?;
             imported += 1;
         }
         tx.commit()?;

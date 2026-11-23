@@ -22,12 +22,14 @@ struct Session<V> {
 
 struct Mixer<V> {
     sessions: BTreeMap<String, Session<V>>,
+    complete: bool,
 }
 
 impl<V> Default for Mixer<V> {
     fn default() -> Self {
         Self {
             sessions: BTreeMap::new(),
+            complete: true,
         }
     }
 }
@@ -64,7 +66,7 @@ struct Journal(PathBuf);
 
 impl Journal {
     fn read(&self) -> io::Result<Entries> {
-        let entries: Entries = match fs::read(&self.0) {
+        let entries: Entries = match crate::config_file::read(&self.0) {
             Ok(bytes) => serde_json::from_slice(&bytes)?,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Entries::new()),
             Err(error) => return Err(error),
@@ -95,7 +97,7 @@ impl Journal {
         fs::create_dir_all(dir)?;
         let mut temp = tempfile::NamedTempFile::new_in(dir)?;
         serde_json::to_writer(temp.as_file_mut(), entries)?;
-        temp.as_file().sync_all()?;
+        crate::config_file::sync(temp.as_file())?;
         temp.persist(&self.0)?;
         Ok(())
     }
@@ -104,20 +106,35 @@ impl Journal {
         let mut entries = self.read()?;
         // A returning app may still have the cap from a previous recording. Complete
         // its old transaction before using the slider as the baseline for a new cap.
-        self.restore_entries(mixer, &mut entries, |id, saved| {
+        let restored = self.restore_entries(mixer, &mut entries, |id, saved| {
             !mixer.sessions.contains_key(id) || saved.lowered != target
-        })?;
+        });
         let mut changes = Vec::new();
+        let mut failure = restored.err().or_else(|| {
+            (!mixer.complete).then(|| io::Error::other("Incomplete audio session enumeration"))
+        });
         for (id, session) in &mixer.sessions {
-            let unresolved_sibling = entries.iter().any(|(old, saved)| {
-                !mixer.sessions.contains_key(old)
-                    && saved.group == session.group
-                    && saved.device == session.device
-            });
-            if entries.contains_key(id) || unresolved_sibling {
+            let mut unresolved = entries
+                .iter()
+                .filter(|(old, saved)| {
+                    !mixer.sessions.contains_key(*old)
+                        && saved.group == session.group
+                        && saved.device == session.device
+                })
+                .peekable();
+            let unresolved_sibling = unresolved.peek().is_some();
+            if entries.contains_key(id)
+                || unresolved.any(|(_, saved)| !saved.instance_only || !mixer.complete)
+            {
                 continue;
             }
-            let original = session.volume.level()?;
+            let original = match session.volume.level() {
+                Ok(level) => level,
+                Err(error) => {
+                    failure = Some(error);
+                    continue;
+                }
+            };
             if original > target {
                 entries.insert(
                     id.clone(),
@@ -126,22 +143,37 @@ impl Journal {
                         group: session.group.clone(),
                         original,
                         lowered: target,
-                        instance_only: mixer.group(&session.device, &session.group).count() > 1,
+                        instance_only: !mixer.complete
+                            || unresolved_sibling
+                            || mixer.group(&session.device, &session.group).count() > 1,
                     },
                 );
-                changes.push(&session.volume);
+                changes.push((id, &session.volume));
             }
         }
         if !changes.is_empty() {
             // Every affected session is recoverable even if the process dies inside SetMasterVolume.
             self.save(&entries)?;
-            for volume in changes {
-                volume.set(target)?;
+            let mut retry = false;
+            for (id, volume) in changes {
+                if let Err(error) = volume.set(target) {
+                    failure = Some(error);
+                    // A failed COM call need not imply an unchanged slider.
+                    // Retire the intent only after verifying or restoring it.
+                    if entries[id].restore(volume).is_ok() {
+                        entries.remove(id);
+                        retry = true;
+                    }
+                }
+            }
+            if retry {
+                self.save(&entries)?;
             }
         }
-        Ok(())
+        failure.map_or(Ok(()), Err)
     }
 
+    #[cfg(test)]
     fn restore<V: Volume>(&self, mixer: &Mixer<V>) -> io::Result<()> {
         self.restore_entries(mixer, &mut self.read()?, |_, _| true)
     }
@@ -165,11 +197,14 @@ impl Journal {
             if !eligible(id, saved) {
                 return true;
             }
-            let session = mixer.sessions.get(id).or(if saved.instance_only {
-                None
-            } else {
-                replacement
-            });
+            let session = mixer
+                .sessions
+                .get(id)
+                .or(if saved.instance_only || !mixer.complete {
+                    None
+                } else {
+                    replacement
+                });
             let Some(session) = session else { return true };
             if let Err(error) = saved.restore(&session.volume) {
                 failures = Some(error);
@@ -188,7 +223,12 @@ impl Journal {
 pub(crate) struct Effects {
     journal: Journal,
     recording: Option<Recording>,
-    recovery_pending: bool,
+    retry: Option<RecoveryRetry>,
+}
+
+struct RecoveryRetry {
+    due: Instant,
+    delay: Duration,
 }
 
 struct Recording {
@@ -202,48 +242,82 @@ impl Effects {
         Self {
             journal: Journal(data_dir.join("volume-recovery.json")),
             recording: None,
-            recovery_pending: false,
+            retry: None,
         }
     }
 
     pub(crate) fn recover(&mut self) -> Result<(), String> {
+        self.recover_with(Instant::now, |journal, entries| {
+            native::with_mixer(|m| journal.restore_entries(m, entries, |_, _| true))
+        })
+    }
+
+    fn recover_with(
+        &mut self,
+        now: impl FnOnce() -> Instant,
+        restore_sessions: impl FnOnce(&Journal, &mut Entries) -> io::Result<()>,
+    ) -> Result<(), String> {
         let restore = || -> io::Result<bool> {
-            if self.journal.0.try_exists()? {
-                native::with_mixer(|m| self.journal.restore(m))?;
-                return self.journal.0.try_exists();
+            if !self.journal.0.try_exists()? {
+                return Ok(false);
             }
-            Ok(false)
+            let mut entries = self.journal.read()?;
+            if entries.is_empty() {
+                self.journal.save(&entries)?;
+            } else {
+                restore_sessions(&self.journal, &mut entries)?;
+            }
+            Ok(!entries.is_empty())
         };
         let result = restore();
-        self.recovery_pending = result.as_ref().copied().unwrap_or(true);
+        self.retry = result.as_ref().copied().unwrap_or(true).then(|| {
+            let delay = self.retry.as_ref().map_or(Duration::from_secs(5), |retry| {
+                (retry.delay * 2).min(Duration::from_secs(300))
+            });
+            RecoveryRetry {
+                due: now() + delay,
+                delay,
+            }
+        });
         result.map(drop).map_err(|_| {
             "Die Lautstärke anderer Apps konnte nicht vollständig wiederhergestellt werden.".into()
         })
     }
 
-    pub(crate) fn needs_recovery(&self) -> bool {
-        self.recovery_pending && self.recording.is_none()
+    pub(crate) fn recovery_wait(&self, now: Instant) -> Option<Duration> {
+        self.retry
+            .as_ref()
+            .filter(|_| self.recording.is_none())
+            .map(|retry| retry.due.saturating_duration_since(now))
     }
 
     pub(crate) fn begin(&mut self, tones: bool, volume_percent: u8) -> Result<(), String> {
+        self.begin_with(tones, volume_percent, tone::play)
+    }
+
+    fn begin_with(
+        &mut self,
+        tones: bool,
+        volume_percent: u8,
+        cue: impl FnOnce(bool),
+    ) -> Result<(), String> {
         if self.recording.is_some() {
             return Ok(());
         }
-        self.recover()?;
         let target = f32::from(volume_percent.min(100)) / 100.0;
-        if target < 1.0 && native::with_mixer(|m| self.journal.lower(m, target)).is_err() {
-            self.recover()?;
-            return Err("Die Lautstärke anderer Apps konnte nicht abgesenkt werden.".into());
-        }
         if tones {
-            tone::play(true);
+            cue(true);
         }
         self.recording = Some(Recording {
             tones,
             target,
             checked: Instant::now(),
         });
-        Ok(())
+        let recovery = self.recover();
+        if target < 1.0 && native::with_mixer(|m| self.journal.lower(m, target)).is_err() {
+            return Err("Die Lautstärke anderer Apps konnte nicht abgesenkt werden.".into());
+        }
+        recovery
     }
 
     pub(crate) fn refresh(&mut self) -> Result<(), String> {
@@ -260,10 +334,16 @@ impl Effects {
     }
 
     pub(crate) fn end(&mut self) -> Result<(), String> {
+        self.end_with(tone::play)
+    }
+
+    fn end_with(&mut self, cue: impl FnOnce(bool)) -> Result<(), String> {
         if let Some(active) = self.recording.take() {
             if active.tones {
-                tone::play(false);
+                cue(false);
             }
+            // This recording's sliders get a fresh retry window on release.
+            self.retry = None;
             self.recover()?;
         }
         Ok(())

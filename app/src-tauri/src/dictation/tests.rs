@@ -4,6 +4,65 @@ use super::*;
 mod dictionary;
 
 #[test]
+fn a_slow_comparison_neither_blocks_dictation_nor_queues_duplicate_windows() {
+    use std::{sync::mpsc, thread, time::Duration};
+    let mut requests = review::Requests::default();
+    let (started, running) = mpsc::channel();
+    let (release, gate) = mpsc::channel();
+    let (dispatch, ui) = mpsc::channel();
+    requests
+        .start(move |ticket| {
+            started.send(thread::current().id()).unwrap();
+            gate.recv_timeout(Duration::from_secs(5)).unwrap();
+            dispatch.send(ticket).unwrap();
+        })
+        .unwrap();
+    assert_ne!(
+        running.recv_timeout(Duration::from_secs(5)).unwrap(),
+        thread::current().id()
+    );
+    assert!(!requests.start(|_| {}).unwrap());
+    release.send(()).unwrap();
+    let ticket = ui.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(!requests.start(|_| {}).unwrap());
+    drop(ticket);
+    assert!(requests.start(|_| {}).unwrap());
+}
+
+#[test]
+fn continuous_overlay_failures_show_one_warning_outside_the_window_thread() {
+    use std::{sync::mpsc, thread, time::Duration};
+    let notice = std::sync::Arc::new(runtime::OverlayFailure::default());
+    let (shown, received) = mpsc::channel();
+    let (close, wait) = mpsc::channel();
+    let opened = shown.clone();
+    let dialog = notice
+        .report(move || {
+            opened.send(thread::current().id()).unwrap();
+            wait.recv_timeout(Duration::from_secs(5)).unwrap();
+        })
+        .unwrap()
+        .unwrap();
+    let dialog_thread = received.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_ne!(dialog_thread, thread::current().id());
+    assert!(
+        notice
+            .report(|| panic!("duplicate dialog"))
+            .unwrap()
+            .is_none()
+    );
+    close.send(()).unwrap();
+    dialog.join().unwrap();
+    notice.recovered();
+    notice
+        .report(move || {
+            shown.send(thread::current().id()).unwrap();
+        })
+        .unwrap();
+    received.recv_timeout(Duration::from_secs(5)).unwrap();
+}
+
+#[test]
 fn mixer_faults_preserve_dictation_and_appear_when_its_status_is_settled() {
     let mut warning = Some("Mixer nicht erreichbar.".into());
     for state in [
@@ -37,6 +96,7 @@ struct Fake {
     calls: Vec<&'static str>,
     overlay: OverlayState,
     inserts: Vec<(u8, String)>,
+    comparisons: Vec<(u8, Arc<DictationRecord>)>,
     carets: Vec<Option<usize>>,
     stopped_before_processing: bool,
     fail_begin: bool,
@@ -81,6 +141,10 @@ impl Ports for Fake {
         self.inserts.push((target, text.into()));
         Ok(())
     }
+    fn compare(&mut self, target: u8, record: Arc<DictationRecord>) -> Result<(), String> {
+        self.comparisons.push((target, record));
+        Ok(())
+    }
     fn show(&mut self, next: OverlayState) {
         if matches!(next, OverlayState::Processing) {
             self.stopped_before_processing = self.calls.last() == Some(&"suspend");
@@ -95,6 +159,99 @@ fn setup() -> Session<Fake> {
         ..Fake::default()
     };
     Session::new(fake)
+}
+
+#[test]
+fn every_completed_dictation_survives_in_memory_even_if_its_final_text_is_empty() {
+    let mut s = setup();
+    let temp = tempfile::tempdir().unwrap();
+    let db = temp.path().join("review.db");
+    s.compare(Some(2));
+    assert!(s.ports.comparisons.is_empty());
+    assert!(matches!(s.ports.overlay, OverlayState::Error { .. }));
+    for raw in ["Ich möchte, äh, nach Hause.", "äh"] {
+        s.start(Some(1));
+        s.stop();
+        s.recognized(Ok(Transcript::from_dictation(
+            "test",
+            raw.into(),
+            Default::default(),
+            || quatsch_mit_sosse_store::Store::open(&db),
+        )));
+        if matches!(s.phase, Phase::Inserting { .. }) {
+            s.inserted(Err("Ziel geschlossen".into()));
+        }
+    }
+    s.start(Some(1));
+    s.stop();
+    s.recognized(Ok(Transcript::plain(" ".into())));
+    assert_eq!(s.history.len(), 2);
+    assert!(
+        matches!(&s.ports.overlay, OverlayState::Error { text, .. } if text == "Ich möchte nach Hause.")
+    );
+    assert_eq!(s.history[0].original, "Ich möchte, äh, nach Hause.");
+    assert_eq!(s.history[0].finished, "Ich möchte nach Hause.");
+    s.compare(None);
+    assert!(s.ports.comparisons.is_empty());
+    s.compare(Some(2));
+    let (target, record) = &s.ports.comparisons[0];
+    assert_eq!(*target, 2);
+    assert_eq!(record.original, "äh");
+    assert_eq!(record.finished, "");
+    s.repeat(Some(3));
+    assert_eq!(
+        s.ports.inserts.last(),
+        Some(&(3, "Ich möchte nach Hause.".into()))
+    );
+}
+
+#[test]
+fn restoring_a_displayed_original_uses_its_snapshot_and_no_expanded_snippet_caret() {
+    let mut s = setup();
+    s.start(Some(1));
+    s.stop();
+    let mut result = Transcript::plain("mein Gruß".into());
+    result.record.finished = "Grüße!".into();
+    result.record.cursor = Some(3);
+    s.recognized(Ok(result));
+    s.inserted(Ok(()));
+    s.compare(Some(2));
+    let (target, first) = s.ports.comparisons[0].clone();
+    s.start(Some(3));
+    s.compare(Some(3));
+    s.stop();
+    s.recognized(Ok(Transcript::plain("Zwei.".into())));
+    s.inserted(Ok(()));
+    s.insert_original(target, &first.original);
+    s.inserted(Err("Zielfenster geschlossen".into()));
+    assert!(matches!(&s.ports.overlay, OverlayState::Error { text, .. } if text == "mein Gruß"));
+    s.repeat(Some(3));
+    assert_eq!(s.ports.comparisons.len(), 1);
+    assert_eq!(
+        s.ports.inserts,
+        [
+            (1, "Grüße!".into()),
+            (3, "Zwei.".into()),
+            (2, "mein Gruß".into()),
+            (3, "Zwei.".into())
+        ]
+    );
+    assert_eq!(s.ports.carets, [Some(3), None, None, None]);
+    assert_eq!(s.history.len(), 2);
+}
+
+#[test]
+fn original_requested_during_another_insert_remains_available_to_copy() {
+    let mut s = setup();
+    s.start(Some(1));
+    s.stop();
+    s.recognized(Ok(Transcript::plain("Zwei.".into())));
+    s.insert_original(2, "Früheres Original.");
+    assert_eq!(s.ports.inserts, [(1, "Zwei.".into())]);
+    assert!(
+        matches!(&s.ports.overlay, OverlayState::Error { text, .. } if text == "Früheres Original.")
+    );
+    assert!(matches!(s.phase, Phase::Inserting { .. }));
 }
 
 #[test]
@@ -203,6 +360,31 @@ fn elevated_window_during_inference_leaves_the_new_text_for_manual_recovery() {
     assert!(matches!(&s.ports.overlay, OverlayState::Error { text, .. } if text == "Zwei."));
     s.target_available();
     assert!(matches!(&s.ports.overlay, OverlayState::Error { text, .. } if text == "Zwei."));
+}
+
+#[test]
+fn losing_target_information_during_recognition_requires_an_explicit_retry() {
+    let mut s = setup();
+    s.start(Some(1));
+    s.stop();
+    s.discard_target();
+    s.target_available();
+    s.recognized(Ok(Transcript::plain("Zwei.".into())));
+    assert!(s.ports.inserts.is_empty());
+    assert!(matches!(&s.ports.overlay, OverlayState::Error { text, .. } if text == "Zwei."));
+    s.repeat(Some(2));
+    assert_eq!(s.ports.inserts, [(2, "Zwei.".into())]);
+}
+
+#[test]
+fn a_stopped_shortcut_worker_releases_the_microphone_and_shows_the_error() {
+    let mut s = setup();
+    s.start(Some(1));
+    s.unavailable(messages().shortcut_error.clone());
+    assert_eq!(s.ports.calls, ["begin", "suspend"]);
+    assert!(matches!(s.ports.overlay, OverlayState::Error { .. }));
+    s.stop();
+    assert!(s.ports.inserts.is_empty());
 }
 
 #[test]

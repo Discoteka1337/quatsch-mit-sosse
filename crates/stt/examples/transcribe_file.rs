@@ -1,8 +1,8 @@
 use std::{
     ffi::OsString,
     fs::{self, File},
-    io::{BufReader, Read, Seek},
-    path::PathBuf,
+    io::{self, BufReader, Read, Seek, Write},
+    path::{Path, PathBuf},
 };
 
 use quatsch_mit_sosse_models::Manager;
@@ -74,6 +74,18 @@ fn main() {
     }
 }
 
+fn publish_transcript(
+    path: &Path,
+    write: impl FnOnce(&mut File) -> io::Result<()>,
+) -> io::Result<()> {
+    let parent = path.parent().ok_or(io::ErrorKind::InvalidInput)?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    write(temporary.as_file_mut())?;
+    temporary.as_file().sync_all()?;
+    temporary.persist(path)?;
+    Ok(())
+}
+
 fn run() -> Result<(), &'static str> {
     let action = parse_args(&std::env::args_os().skip(1).collect::<Vec<_>>())?;
     let Action::Transcribe { wav, model_id } = action else {
@@ -99,10 +111,9 @@ fn run() -> Result<(), &'static str> {
     let output_directory = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../testdata/private");
     fs::create_dir_all(&output_directory)
         .map_err(|_| "Der private Ausgabeordner konnte nicht erstellt werden.")?;
-    fs::write(
-        output_directory.join("transcribe_file.txt"),
-        transcript.text.as_bytes(),
-    )
+    publish_transcript(&output_directory.join("transcribe_file.txt"), |file| {
+        file.write_all(transcript.text.as_bytes())
+    })
     .map_err(|_| "Das private Transkript konnte nicht gespeichert werden.")?;
     println!(
         "Ergebnis: testdata/private/transcribe_file.txt (UTF-8). Verarbeitung: {:.3} Sekunden.",
@@ -113,9 +124,29 @@ fn run() -> Result<(), &'static str> {
 
 #[cfg(test)]
 mod tests {
-    use std::{ffi::OsString, io::Cursor};
+    use std::{
+        ffi::OsString,
+        fs,
+        io::{self, Cursor, Write},
+    };
 
     use super::{Action, parse_args, read_wav};
+
+    #[test]
+    fn an_interrupted_replacement_preserves_the_previous_transcript() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("result.txt");
+        fs::write(&path, b"previous").unwrap();
+        let result = super::publish_transcript(&path, |file| {
+            file.write_all(b"incomplete")?;
+            Err(io::Error::other("simulated write failure"))
+        });
+        assert!(result.is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"previous");
+        assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 1);
+        super::publish_transcript(&path, |file| file.write_all(b"new")).unwrap();
+        assert_eq!(fs::read(path).unwrap(), b"new");
+    }
 
     fn wave<T: hound::Sample + Copy>(spec: hound::WavSpec, samples: &[T]) -> Vec<u8> {
         let mut cursor = Cursor::new(Vec::new());

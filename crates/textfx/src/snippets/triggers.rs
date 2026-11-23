@@ -1,5 +1,5 @@
 use super::Snippet;
-use crate::tokens::word_key;
+use crate::tokens::{numeric_literals, word_key};
 use icu_properties::{
     CodePointMapData,
     props::{GeneralCategory, GeneralCategoryGroup},
@@ -55,12 +55,35 @@ pub fn snippet_trigger_key(trigger: &str) -> String {
     key
 }
 
+/// Compare the numeric values that the version-two storage key cannot distinguish.
+pub fn same_snippet_numbers(left: &str, right: &str) -> bool {
+    numeric_literals(left) == numeric_literals(right)
+}
+
 struct Template<'a> {
     boundaries: Boundaries,
+    numbers: Vec<String>,
     text: &'a str,
 }
 
 pub(super) struct Triggers<'a>(HashMap<String, Vec<Template<'a>>>);
+
+#[derive(Clone, Copy, Default)]
+pub(super) enum Match<'a> {
+    #[default]
+    Missing,
+    Ambiguous,
+    Unique(&'a str),
+}
+
+impl<'a> Match<'a> {
+    pub(super) fn or_else(self, next: impl FnOnce() -> Self) -> Self {
+        match self {
+            Self::Missing => next(),
+            other => other,
+        }
+    }
+}
 
 impl<'a> Triggers<'a> {
     pub(super) fn new(snippets: &'a [Snippet]) -> Self {
@@ -70,6 +93,7 @@ impl<'a> Triggers<'a> {
             if !key.is_empty() {
                 index.entry(key).or_default().push(Template {
                     boundaries,
+                    numbers: numeric_literals(&snippet.trigger),
                     text: &snippet.text,
                 });
             }
@@ -77,21 +101,32 @@ impl<'a> Triggers<'a> {
         Self(index)
     }
 
-    pub(super) fn find(&self, sentence: &str) -> Option<&'a str> {
+    pub(super) fn find(&self, sentence: &str) -> Match<'a> {
         let (key, spoken) = parts(sentence);
-        let matches = self.0.get(&key)?.iter().filter(|entry| {
-            spaces_fit(&spoken, &entry.boundaries) && spaces_fit(&entry.boundaries, &spoken)
+        let Some(entries) = self.0.get(&key) else {
+            return Match::Missing;
+        };
+        let numbers = numeric_literals(sentence);
+        let matches = entries.iter().filter(|entry| {
+            entry.numbers == numbers
+                && spaces_fit(&spoken, &entry.boundaries)
+                && spaces_fit(&entry.boundaries, &spoken)
         });
         // Prefer exact word divisions when several written forms fit.
         let mut exact = matches
             .clone()
             .filter(|entry| spaces(&spoken).eq(spaces(&entry.boundaries)));
-        if let Some(entry) = exact.next() {
-            return exact.next().is_none().then_some(entry.text);
-        }
         let mut remaining = matches;
-        let first = remaining.next()?;
-        remaining.next().is_none().then_some(first.text)
+        let candidates = if let Some(entry) = exact.next() {
+            (Some(entry), exact.next())
+        } else {
+            (remaining.next(), remaining.next())
+        };
+        match candidates {
+            (Some(entry), None) => Match::Unique(entry.text),
+            (Some(_), Some(_)) => Match::Ambiguous,
+            _ => Match::Missing,
+        }
     }
 }
 

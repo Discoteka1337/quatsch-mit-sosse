@@ -2,7 +2,20 @@ use super::*;
 use quatsch_mit_sosse_store::{
     DictionaryDraft, DictionaryEntry, SnippetDraft, SnippetEntry, Source, Store,
 };
-use std::{fs::File, path::PathBuf, sync::mpsc, thread};
+use std::{
+    path::PathBuf,
+    sync::{Arc, mpsc},
+    thread,
+};
+
+pub(super) mod clipboard;
+mod filter;
+use filter::{Filter, ListUpdate, RowChange};
+
+#[cfg(test)]
+mod clipboard_tests;
+#[cfg(test)]
+mod tests;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Collection {
@@ -105,7 +118,7 @@ pub(super) enum Action {
 
 pub(super) struct Update {
     entries: Option<Vec<Entry>>,
-    select: Option<i64>,
+    select: Option<usize>,
     message: String,
 }
 
@@ -143,7 +156,7 @@ impl Action {
                 LABELS.dictionary_deleted.clone()
             }
             Self::Import(path) => {
-                let file = File::open(path).map_err(|_| csv_files::file_error())?;
+                let file = csv_files::open(&path)?;
                 let count = match collection {
                     Collection::Dictionary => store.import_csv(file),
                     Collection::Snippets => store.import_snippets_csv(file),
@@ -160,27 +173,28 @@ impl Action {
                 })?;
                 return Ok(Update {
                     entries: None,
-                    select,
+                    select: None,
                     message: LABELS.dictionary_exported.clone(),
                 });
             }
         };
+        let entries: Vec<_> = match collection {
+            Collection::Dictionary => store
+                .list("")
+                .map_err(io::Error::other)?
+                .into_iter()
+                .map(Entry::Term)
+                .collect(),
+            Collection::Snippets => store
+                .list_snippets("")
+                .map_err(io::Error::other)?
+                .into_iter()
+                .map(Entry::Snippet)
+                .collect(),
+        };
         Ok(Update {
-            entries: Some(match collection {
-                Collection::Dictionary => store
-                    .list("")
-                    .map_err(io::Error::other)?
-                    .into_iter()
-                    .map(Entry::Term)
-                    .collect(),
-                Collection::Snippets => store
-                    .list_snippets("")
-                    .map_err(io::Error::other)?
-                    .into_iter()
-                    .map(Entry::Snippet)
-                    .collect(),
-            }),
-            select,
+            select: select.and_then(|id| entries.iter().position(|entry| entry.id() == id)),
+            entries: Some(entries),
             message,
         })
     }
@@ -188,9 +202,13 @@ impl Action {
 
 #[derive(Default)]
 pub(super) struct Page {
-    entries: RefCell<Vec<Entry>>,
+    entries: RefCell<Arc<Vec<Entry>>>,
     selected: Cell<Option<usize>>,
     pending: RefCell<Option<mpsc::Receiver<io::Result<Update>>>>,
+    filter: RefCell<Filter>,
+    render: RefCell<Option<ListUpdate>>,
+    reveal_saved: Cell<bool>,
+    list_ready: Cell<bool>,
     ready: Cell<bool>,
 }
 
@@ -269,10 +287,12 @@ impl Editor<'_> {
         }
         if show && self.page.pending.borrow().is_none() {
             self.page.ready.set(false);
-            self.page.entries.borrow_mut().clear();
+            self.page.list_ready.set(false);
+            self.page.filter.take();
+            self.page.render.take();
+            self.page.entries.take();
             self.edit_entry(None);
             self.set_text(SEARCH, "");
-            self.filter_entries()?;
             self.start(Action::Load)?;
         }
         Ok(())
@@ -289,26 +309,72 @@ impl Editor<'_> {
     // A row holds the index into this window's current database snapshot.
     // Filtering never changes the database ID used by edit and delete.
     fn filter_entries(&self) -> io::Result<()> {
-        let query = self.edit_text(SEARCH);
-        let list = self.control(ENTRIES);
-        send(list, LB_RESETCONTENT, 0, 0);
-        let selected = self.page.selected.get();
-        let mut selection_visible = false;
-        for (index, entry) in self.page.entries.borrow().iter().enumerate() {
-            if entry.matches(&query) {
-                let label = HSTRING::from(entry.label());
-                let row = send(list, LB_ADDSTRING, 0, label.as_ptr() as isize).0;
-                if row < 0 || send(list, LB_SETITEMDATA, row as usize, index as isize).0 < 0 {
-                    return Err(self.collection.store_error());
-                }
-                if selected == Some(index) {
-                    send(list, LB_SETCURSEL, row as usize, 0);
-                    selection_visible = true;
-                }
-            }
+        if !self.page.ready.get() {
+            return Ok(());
         }
-        if selected.is_some() && !selection_visible {
-            self.edit_entry(None);
+        self.page.list_ready.set(false);
+        self.enable_editor();
+        self.start_timer()?;
+        self.page.render.take();
+        self.page
+            .filter
+            .borrow_mut()
+            .request(self.page.entries.borrow().clone(), self.edit_text(SEARCH))?;
+        Ok(())
+    }
+
+    fn poll_filter(&self) -> io::Result<()> {
+        let list = self.control(ENTRIES);
+        let found = self.page.filter.borrow_mut().poll()?;
+        if let Some(indices) = found {
+            let reveal_saved = self.page.reveal_saved.replace(false);
+            if self
+                .page
+                .selected
+                .get()
+                .is_some_and(|i| indices.binary_search(&i).is_err())
+            {
+                if reveal_saved {
+                    self.set_text(SEARCH, "");
+                    return Ok(());
+                }
+                self.edit_entry(None);
+            }
+            let visible = usize::try_from(send(list, LB_GETCOUNT, 0, 0).0)
+                .map_err(|_| self.collection.store_error())?;
+            self.page
+                .render
+                .replace(Some(ListUpdate::new(visible, indices)));
+        }
+        if let Some(mut update) = self.page.render.take() {
+            update.tick(|change| {
+                match change {
+                    RowChange::Remove(row) => {
+                        if send(list, LB_DELETESTRING, row, 0).0 < 0 {
+                            return Err(self.collection.store_error());
+                        }
+                    }
+                    RowChange::Append(index) => {
+                        let entries = self.page.entries.borrow();
+                        let label = HSTRING::from(entries[index].label());
+                        let row = send(list, LB_ADDSTRING, 0, label.as_ptr() as isize).0;
+                        if row < 0 || send(list, LB_SETITEMDATA, row as usize, index as isize).0 < 0
+                        {
+                            return Err(self.collection.store_error());
+                        }
+                        if self.page.selected.get() == Some(index) {
+                            send(list, LB_SETCURSEL, row as usize, 0);
+                        }
+                    }
+                }
+                Ok(())
+            })?;
+            if !update.finished() {
+                self.page.render.replace(Some(update));
+            } else {
+                self.page.list_ready.set(true);
+                self.enable_editor();
+            }
         }
         Ok(())
     }
@@ -341,7 +407,7 @@ impl Editor<'_> {
     }
 
     fn enable_editor(&self) {
-        let enabled = self.page.ready.get() && self.page.pending.borrow().is_none();
+        let enabled = self.can_edit();
         for id in [
             ENTRIES,
             TERM,
@@ -364,11 +430,20 @@ impl Editor<'_> {
         }
     }
 
-    fn start(&self, action: Action) -> io::Result<()> {
-        let collection = self.collection;
-        if unsafe { SetTimer(Some(self.form.hwnd), collection.timer(), 40, None) } == 0 {
+    fn can_edit(&self) -> bool {
+        self.page.ready.get() && self.page.pending.borrow().is_none() && self.page.list_ready.get()
+    }
+
+    fn start_timer(&self) -> io::Result<()> {
+        if unsafe { SetTimer(Some(self.form.hwnd), self.collection.timer(), 16, None) } == 0 {
             return Err(io::Error::last_os_error());
         }
+        Ok(())
+    }
+
+    fn start(&self, action: Action) -> io::Result<()> {
+        let collection = self.collection;
+        self.start_timer()?;
         let (done, pending) = mpsc::channel();
         thread::Builder::new()
             .name("entry-storage".into())
@@ -388,31 +463,35 @@ impl Editor<'_> {
     }
 
     pub(super) fn poll(&self) -> io::Result<()> {
+        let result = self.poll_storage().and_then(|()| self.poll_filter());
+        if self.page.pending.borrow().is_none()
+            && !self.page.filter.borrow().busy()
+            && self.page.render.borrow().is_none()
+        {
+            unsafe {
+                let _ = KillTimer(Some(self.form.hwnd), self.collection.timer());
+            }
+        }
+        result
+    }
+
+    fn poll_storage(&self) -> io::Result<()> {
         let received = self.page.pending.borrow().as_ref().map(|rx| rx.try_recv());
-        if matches!(received, Some(Err(mpsc::TryRecvError::Empty))) {
-            return Ok(());
-        }
-        unsafe {
-            let _ = KillTimer(Some(self.form.hwnd), self.collection.timer());
-        }
-        self.page.pending.take();
-        self.enable_editor();
         let Some(result) = received else {
             return Ok(());
         };
+        if matches!(result, Err(mpsc::TryRecvError::Empty)) {
+            return Ok(());
+        }
+        self.page.pending.take();
+        self.enable_editor();
         let update = result.map_err(|_| self.collection.store_error())??;
         if let Some(rows) = update.entries {
-            let selected = update
-                .select
-                .and_then(|id| rows.iter().position(|e| e.id() == id));
-            let query = self.edit_text(SEARCH);
-            let hidden = selected.is_some_and(|i| !rows[i].matches(&query));
-            self.page.entries.replace(rows);
+            self.page.list_ready.set(false);
+            self.page.entries.replace(Arc::new(rows));
             self.page.ready.set(true);
-            if hidden {
-                self.set_text(SEARCH, "");
-            }
-            self.edit_entry(selected);
+            self.page.reveal_saved.set(update.select.is_some());
+            self.edit_entry(update.select);
             self.filter_entries()?;
         }
         self.set_text(EDITOR_STATUS, &update.message);
@@ -433,7 +512,7 @@ impl Editor<'_> {
             (SEARCH, EN_CHANGE) => return self.filter_entries(),
             _ => {}
         }
-        if !self.page.ready.get() || self.page.pending.borrow().is_some() {
+        if !self.can_edit() {
             return Ok(());
         }
         match (id, notification) {

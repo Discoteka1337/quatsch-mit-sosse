@@ -103,11 +103,22 @@ try {
     Invoke-GuardCase -Name 'Ordner ohne eigenes Git-Repository' -RepositoryMode Missing -ExpectedRule 'PRIVACY_SCAN'
     Invoke-GuardCase -Name 'Unterordner ist keine Repository-Wurzel' -RepositoryMode Subdirectory -ExpectedRule 'PRIVACY_SCAN'
     foreach ($relativePath in @(
+        '.env',
+        'config/.env.production',
+        'config/.env.example.backup',
+        'keys/client.KEY',
+        'fixture.pem',
+        'copy/.env.test/value.txt',
         'testdata/private/notiz.txt',
         'testdata/private/aufnahme.wav',
         'modell.onnx',
         'modell.gguf',
         'modell.bin',
+        'encoder.int8.onnx.data',
+        'kopie/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2',
+        'sherpa-onnx-whisper-turbo.tar.bz2',
+        'kopie/TOKENS.TXT',
+        'turbo-tokens.txt',
         'aufnahme.wav',
         'modelle/Größe mit Leerzeichen.ONNX',
         'testdata/public/unterordner/aufnahme.wav',
@@ -125,6 +136,16 @@ try {
     Invoke-GuardCase -Name 'Öffentliche WAV direkt im freigegebenen Ordner' -Files @{
         'testdata/public/synthetisch.wav' = $sentinel
     } -Indexed @('testdata/public/synthetisch.wav')
+    Invoke-GuardCase -Name 'Gewöhnliche Daten, Textdateien und Archive' -Files @{
+        'fixture.data' = $sentinel
+        'notes-tokens.txt' = $sentinel
+        'source.tar.bz2' = $sentinel
+    } -Indexed @('fixture.data', 'notes-tokens.txt', 'source.tar.bz2')
+    Invoke-GuardCase -Name 'Freigegebene Umgebungsvorlagen' -Files @{
+        '.env.example' = 'EXAMPLE='
+        'config/.env.example' = 'EXAMPLE='
+        'sample.env' = 'synthetic test'
+    } -Indexed @('.env.example', 'config/.env.example', 'sample.env')
     Invoke-GuardCase -Name 'Nicht versionierte private und ignorierte Dateien' -Files @{
         '.gitignore' = "testdata/private/`nnode_modules/`ntarget/`napp/ui/dist/`n"
         'testdata/private/aufnahme.wav' = $sentinel

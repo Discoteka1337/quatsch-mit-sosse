@@ -126,7 +126,8 @@ impl Recorder for Microphone {
         let health = self.health()?;
         validate_take(recording.samples(), generation, health.generation)?;
         if !health.ready() {
-            return Err(io::Error::other(
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
                 "Der Mikrofonstrom wurde unterbrochen. Bitte die Aufnahme wiederholen.",
             ));
         }
@@ -136,7 +137,8 @@ impl Recorder for Microphone {
 
 fn validate_take(samples: &[f32], started: u64, finished: u64) -> io::Result<()> {
     if samples.is_empty() || started != finished {
-        return Err(io::Error::other(
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
             "Die Aufnahme ist leer oder das Mikrofon wurde unterbrochen beziehungsweise gewechselt. \
              Bitte die Aufnahme wiederholen.",
         ));
@@ -222,8 +224,14 @@ mod tests {
 
     #[test]
     fn empty_audio_and_changed_generation_are_rejected() {
-        assert!(validate_take(&[], 1, 1).is_err());
-        assert!(validate_take(&[0.0], 1, 2).is_err());
+        assert_eq!(
+            validate_take(&[], 1, 1).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert_eq!(
+            validate_take(&[0.0], 1, 2).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
         assert!(validate_take(&[0.0, 0.5, -0.5], 1, 1).is_ok());
     }
 }

@@ -2,6 +2,66 @@ use super::*;
 use tempfile::tempdir;
 
 #[test]
+fn version_one_preserves_user_choices_and_acquires_the_live_cleanup_profile() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    fs::write(
+        &path,
+        r#"{"schemaVersion":1,"mode":"toggle","volumePercent":63}"#,
+    )
+    .unwrap();
+    let mut store = SettingsStore::load(dir.path()).unwrap();
+    let mut settings = store.current().clone();
+    assert_eq!(settings.mode, HotkeyMode::Toggle);
+    assert_eq!(settings.volume_percent, 63);
+    assert_eq!(settings.cleanup, CleanupSettings::default());
+    assert!(!settings.cleanup.voice_commands);
+    assert_eq!(settings.cleanup.digits_from, 13);
+    settings.cleanup.voice_commands = true;
+    settings.cleanup.digits_from = 20;
+    store.save(settings.clone()).unwrap();
+    assert_eq!(
+        SettingsStore::load(dir.path()).unwrap().current(),
+        &settings
+    );
+}
+
+#[test]
+fn oversized_settings_and_legacy_overlay_do_not_migrate_or_replace_files() {
+    for name in ["settings.json", "overlay.json"] {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join(name);
+        let mut bytes = b"{}".to_vec();
+        bytes.resize(1024 * 1024 + 1, b' ');
+        fs::write(&path, &bytes).unwrap();
+        assert!(SettingsStore::load(dir.path()).is_err());
+        assert!(fs::read(path).unwrap() == bytes);
+        if name == "overlay.json" {
+            assert!(!dir.path().join("settings.json").exists());
+        }
+    }
+}
+
+#[test]
+fn oversized_settings_write_keeps_the_last_readable_version_and_login_entry() {
+    let dir = tempdir().unwrap();
+    let mut store = SettingsStore::load(dir.path()).unwrap();
+    let before = store.current().clone();
+    let next = Settings {
+        microphone: Some("a".repeat(1024 * 1024)),
+        autostart: true,
+        ..before.clone()
+    };
+    assert!(
+        store
+            .save_with(next, |_| panic!("unexpected registry update"))
+            .is_err()
+    );
+    assert_eq!(store.current(), &before);
+    assert_eq!(SettingsStore::load(dir.path()).unwrap().current(), &before);
+}
+
+#[test]
 fn existing_overlay_options_migrate_once_without_touching_monitor_positions() {
     let dir = tempdir().unwrap();
     let legacy = dir.path().join("overlay.json");
@@ -20,7 +80,7 @@ fn existing_overlay_options_migrate_once_without_touching_monitor_positions() {
     assert_eq!(fs::read(legacy).unwrap(), bytes);
     let file: serde_json::Value =
         serde_json::from_slice(&fs::read(dir.path().join("settings.json")).unwrap()).unwrap();
-    assert_eq!(file["schemaVersion"], 1);
+    assert_eq!(file["schemaVersion"], 2);
 }
 
 #[test]
@@ -41,7 +101,7 @@ fn unversioned_settings_keep_custom_values_and_acquire_missing_defaults() {
     assert!(!saved.tones);
     assert_eq!(SettingsStore::load(dir.path()).unwrap().current(), saved);
     let parsed: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
-    assert_eq!(parsed["schemaVersion"], 1);
+    assert_eq!(parsed["schemaVersion"], 2);
 }
 
 #[test]
@@ -49,7 +109,7 @@ fn corrupted_and_newer_settings_are_never_overwritten() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("settings.json");
     for bytes in [
-        r#"{"schemaVersion":2,"other":true}"#,
+        r#"{"schemaVersion":3,"other":true}"#,
         "{",
         r#"{"schemaVersion":1,"volumePercent":101}"#,
         r#"{"dictationHotkey":"F1","reinsertHotkey":"F1"}"#,

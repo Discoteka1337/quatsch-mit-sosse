@@ -59,3 +59,31 @@ fn help_is_available_without_local_app_data() {
             .contains("install <id>")
     );
 }
+
+#[test]
+fn unknown_model_errors_do_not_echo_unrecognized_input() {
+    let input = "SYNTHETIC_PRIVATE_ARGUMENT";
+    for command in ["install", "remove"] {
+        let (_, output) = run(&[command, input]);
+        assert!(!output.status.success());
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(error.contains("Unbekanntes Modell"));
+        assert!(!error.contains(input));
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn non_unicode_arguments_return_a_regular_usage_error() {
+    use std::{ffi::OsString, os::windows::ffi::OsStringExt};
+    let invalid = OsString::from_wide(&[0xd800]);
+    let output = Command::new(env!("CARGO_BIN_EXE_models-cli"))
+        .arg("install")
+        .arg(invalid)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(error.contains("Verwendung:"));
+    assert!(!error.contains("panicked"));
+}

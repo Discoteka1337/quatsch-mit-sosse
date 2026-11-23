@@ -2,7 +2,10 @@ use std::{ffi::OsStr, io, os::windows::ffi::OsStrExt, path::Path};
 use windows::{
     Win32::{
         Foundation::{ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, ERROR_SUCCESS},
-        System::Registry::{HKEY, HKEY_CURRENT_USER, REG_SZ, RegDeleteKeyValueW, RegSetKeyValueW},
+        System::Registry::{
+            HKEY, HKEY_CURRENT_USER, REG_SZ, RRF_RT_ANY, RegDeleteKeyValueW, RegGetValueW,
+            RegSetKeyValueW,
+        },
     },
     core::{PCWSTR, w},
 };
@@ -28,6 +31,23 @@ pub(super) fn command(executable: &Path) -> io::Result<Vec<u16>> {
 
 pub(super) fn set(enabled: bool) -> io::Result<()> {
     set_at(HKEY_CURRENT_USER, RUN_KEY, enabled)
+}
+
+pub(crate) fn repair(enabled: bool) -> io::Result<()> {
+    repair_at(HKEY_CURRENT_USER, RUN_KEY, enabled)
+}
+
+fn repair_at(root: HKEY, subkey: PCWSTR, enabled: bool) -> io::Result<()> {
+    if !enabled {
+        // A crash can leave a registration even when the settings file says
+        // disabled. Avoid asking for write access on normal, clean launches.
+        let status = unsafe { RegGetValueW(root, subkey, ENTRY, RRF_RT_ANY, None, None, None) };
+        if matches!(status, ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND) {
+            return Ok(());
+        }
+        status.ok()?;
+    }
+    set_at(root, subkey, enabled)
 }
 
 fn set_at(root: HKEY, subkey: PCWSTR, enabled: bool) -> io::Result<()> {
@@ -124,5 +144,9 @@ mod tests {
         set_at(key.0, PCWSTR::null(), false).unwrap();
         assert_eq!(read(&mut value, &mut size), ERROR_FILE_NOT_FOUND);
         set_at(key.0, PCWSTR::null(), false).unwrap();
+        set_at(key.0, PCWSTR::null(), true).unwrap();
+        repair_at(key.0, PCWSTR::null(), false).unwrap();
+        assert_eq!(read(&mut value, &mut size), ERROR_FILE_NOT_FOUND);
+        repair_at(key.0, PCWSTR::null(), false).unwrap();
     }
 }

@@ -221,6 +221,15 @@ fn import_rejects_bad_rows_atomically_and_empty_export_keeps_header() {
             .is_err()
     );
     assert_eq!(store.list("kodex").unwrap()[0].source, Source::Manual);
+    let before = store.list("").unwrap();
+    assert!(
+        store
+            .import_csv(
+                "term,replacement\nCodex,geändert\nAndere,\"offen\nFolge,verloren".as_bytes()
+            )
+            .is_err()
+    );
+    assert_eq!(store.list("").unwrap(), before);
     assert!(
         store
             .import_csv("term,aliases\nHallo,42\n".as_bytes())

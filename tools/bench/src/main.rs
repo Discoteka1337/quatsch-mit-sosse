@@ -1,5 +1,5 @@
 use bench::{
-    corpus::load_corpus,
+    corpus::{fingerprint, load_corpus},
     measurement::{ModelResult, measure},
     report::{ReportContext, cleanup_passed, protection_checks, render_report},
 };
@@ -10,8 +10,11 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Command, ExitCode, Stdio},
 };
+
+const FINGERPRINT_ENV: &str = "QMS_BENCH_CORPUS_FINGERPRINT";
+const CORPUS_CHANGED: u8 = 2;
 
 #[derive(Debug, PartialEq)]
 struct Options {
@@ -80,18 +83,21 @@ fn parse_options(args: &[OsString]) -> Result<Options, &'static str> {
     Ok(options)
 }
 
-fn main() {
+fn main() -> ExitCode {
     // Panic payloads from dependencies must not expose audio, tokens or references.
     std::panic::set_hook(Box::new(|_| {
         eprintln!("Fehler: Der lokale Benchmark wurde unerwartet abgebrochen.")
     }));
-    if let Err(message) = run() {
-        eprintln!("Fehler: {message}");
-        std::process::exit(1);
+    match run() {
+        Ok(status) => status,
+        Err(message) => {
+            eprintln!("Fehler: {message}");
+            ExitCode::FAILURE
+        }
     }
 }
 
-fn run() -> Result<(), &'static str> {
+fn run() -> Result<ExitCode, &'static str> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     if args.first().is_some_and(|arg| arg == "--worker") {
         return worker(&args[1..]);
@@ -105,7 +111,7 @@ fn run() -> Result<(), &'static str> {
             Der Tagesbericht wird atomar ersetzt. Satztexte und Audio werden nie ausgegeben.\n\
             --check-protection prüft Stille und Satzanfänge. --check-cleanup prüft bei jedem Modell die gepoolte WER gegen die wörtliche Referenz. Verfehlte oder unvollständige Abnahmen liefern nach dem Schreiben des Berichts Exitcode 1."
         );
-        return Ok(());
+        return Ok(ExitCode::SUCCESS);
     }
     let options = parse_options(&args)?;
     let recordings = load_corpus(&options.corpus)?;
@@ -117,6 +123,7 @@ fn run() -> Result<(), &'static str> {
             .filter(|r| r.reference.trim().is_empty())
             .count()
     );
+    let expected_corpus = fingerprint(&recordings);
     drop(recordings);
     let manager = Manager::new().map_err(|_| "Der lokale Modellordner ist nicht verfügbar.")?;
     let mut installed = Vec::new();
@@ -151,6 +158,7 @@ fn run() -> Result<(), &'static str> {
             .map_err(|_| "Die temporäre Messdatei konnte nicht erstellt werden.")?;
         let status = Command::new(&executable)
             .arg("--worker")
+            .env(FINGERPRINT_ENV, &expected_corpus)
             .arg(&model_id)
             .arg(options.threads.to_string())
             .arg(&options.corpus)
@@ -161,6 +169,11 @@ fn run() -> Result<(), &'static str> {
             .stderr(Stdio::null())
             .status()
             .map_err(|_| "Der isolierte Messprozess konnte nicht gestartet werden.")?;
+        if status.code() == Some(i32::from(CORPUS_CHANGED)) {
+            return Err(
+                "Der Korpus hat sich während der Messung geändert. Bitte mit den aktuellen Aufnahmen erneut starten. Der bisherige Bericht bleibt erhalten.",
+            );
+        }
         if !status.success() {
             return Err(
                 "Ein Modell-Messprozess ist fehlgeschlagen; es wird kein unvollständiger Bericht veröffentlicht.",
@@ -224,10 +237,10 @@ fn run() -> Result<(), &'static str> {
             "Die Prüfung von Stille und Satzanfängen ist im Benchmark-Bericht ausgewertet. Mindestens ein Modell hat die Abnahme verfehlt.",
         );
     }
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
-fn worker(args: &[OsString]) -> Result<(), &'static str> {
+fn worker(args: &[OsString]) -> Result<ExitCode, &'static str> {
     let [model, threads, corpus, output] = args else {
         return Err("Ungültiger interner Messaufruf.");
     };
@@ -237,6 +250,10 @@ fn worker(args: &[OsString]) -> Result<(), &'static str> {
         .and_then(|t| t.parse().ok())
         .ok_or("Ungültige Thread-Anzahl.")?;
     let recordings = load_corpus(Path::new(corpus))?;
+    let expected = std::env::var(FINGERPRINT_ENV).map_err(|_| "Ungültiger interner Messaufruf.")?;
+    if fingerprint(&recordings) != expected {
+        return Ok(ExitCode::from(CORPUS_CHANGED));
+    }
     let manager = Manager::new().map_err(|_| "Der lokale Modellordner ist nicht verfügbar.")?;
     let mut engine = create_engine(
         manager,
@@ -251,7 +268,8 @@ fn worker(args: &[OsString]) -> Result<(), &'static str> {
     let data = serde_json::to_vec(&result)
         .map_err(|_| "Die Messdaten konnten nicht serialisiert werden.")?;
     fs::write(Path::new(output), data)
-        .map_err(|_| "Die Messdaten konnten nicht gespeichert werden.")
+        .map_err(|_| "Die Messdaten konnten nicht gespeichert werden.")?;
+    Ok(ExitCode::SUCCESS)
 }
 
 fn revision() -> String {

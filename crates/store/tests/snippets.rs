@@ -110,6 +110,23 @@ fn crud_respects_normalized_triggers_preserves_multiline_text_and_creation_time(
 }
 
 #[test]
+fn version_two_database_retains_its_existing_numeric_trigger_keys() {
+    let dir = tempdir().unwrap();
+    let mut store = Store::open(dir.path().join("test.db")).unwrap();
+    store.add_snippet(&draft("1,3 Mengen", "Dezimal")).unwrap();
+    assert!(matches!(
+        store.add_snippet(&draft("13 Mengen", "Ganzzahlig")),
+        Err(quatsch_mit_sosse_store::Error::DuplicateTrigger)
+    ));
+    assert!(
+        store
+            .import_snippets_csv("trigger,text\n13 Mengen,Kein Ersatz\n".as_bytes())
+            .is_err()
+    );
+    assert_eq!(store.list_snippets("Mengen").unwrap()[0].text, "Dezimal");
+}
+
+#[test]
 fn csv_roundtrip_merges_on_trigger_and_preserves_multiline_templates_and_metadata() {
     let dir = tempdir().unwrap();
     let mut store = Store::open(dir.path().join("test.db")).unwrap();
@@ -137,6 +154,28 @@ fn csv_roundtrip_merges_on_trigger_and_preserves_multiline_templates_and_metadat
 }
 
 #[test]
+fn reads_quoted_fields_across_chunks_and_accepts_an_optional_utf8_bom() {
+    struct OneByte<'a>(&'a [u8]);
+    impl std::io::Read for OneByte<'_> {
+        fn read(&mut self, dest: &mut [u8]) -> std::io::Result<usize> {
+            let count = dest.len().min(1);
+            self.0.read(&mut dest[..count])
+        }
+    }
+    let dir = tempdir().unwrap();
+    let mut store = Store::open(dir.path().join("test.db")).unwrap();
+    let csv = "\u{feff}\"trigger\",\"text\"\r\nGruß,\"Zeile 1\n\"\"Zwei\"\"\"";
+    assert_eq!(
+        store.import_snippets_csv(OneByte(csv.as_bytes())).unwrap(),
+        1
+    );
+    assert_eq!(
+        store.list_snippets("Gruß").unwrap()[0].text,
+        "Zeile 1\n\"Zwei\""
+    );
+}
+
+#[test]
 fn import_rejects_invalid_rows_atomically_and_checks_headers_even_without_rows() {
     let dir = tempdir().unwrap();
     let mut store = Store::open(dir.path().join("test.db")).unwrap();
@@ -144,6 +183,9 @@ fn import_rejects_invalid_rows_atomically_and_checks_headers_even_without_rows()
     for csv in [
         "trigger,text\nmeine E-Mail-Adresse,neu\n!!,falsch\n",
         "trigger,text,created_at\nNeu,A,1\nZwei,B,falsch\n",
+        "trigger,text\nmeine E-Mail-Adresse,neu\nVorlage,\"nicht geschlossen\nWeitere,Vorlage\n",
+        "trigger,text\nVorlage,\"halb\"abgeschlossen\n",
+        "trigger,text\nVorlage,unter\"brochen\n",
         "trigger,text,text\n",
         "text\n",
         "trigger\n",

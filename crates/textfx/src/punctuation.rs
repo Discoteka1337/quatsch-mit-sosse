@@ -1,4 +1,4 @@
-use crate::tokens::{Kind, Token, word_key};
+use crate::tokens::{Kind, Token, is_address_field, word_key};
 
 pub(super) fn apply(tokens: &mut Vec<Token>) {
     for index in 0..tokens.len() {
@@ -125,6 +125,12 @@ fn starts_identifier(rest: &[Token]) -> bool {
 
 fn final_period_position(tokens: &[Token]) -> Option<usize> {
     let last = tokens.iter().rposition(|token| !whitespace(token))?;
+    let mut fields = tokens[..=last]
+        .split(whitespace)
+        .filter(|field| !field.is_empty());
+    if fields.next().is_some_and(is_address_field) && fields.next().is_none() {
+        return None;
+    }
     let mut content = last;
     while matches!(
         tokens[content].text.as_str(),

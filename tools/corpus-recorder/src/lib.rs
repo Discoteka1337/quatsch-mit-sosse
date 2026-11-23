@@ -248,23 +248,14 @@ pub fn run_session(
                 }
             }
             recorder.start()?;
-            ui.write(if item.kind == PromptKind::Keyboard {
-                "Aufnahme läuft: Jetzt nur tippen. Enter: stoppen · Escape/Strg+C: beenden\n"
-            } else {
-                "Aufnahme läuft. Enter: stoppen · W: verwerfen/wiederholen · S: überspringen · Escape/Strg+C: beenden\n"
-            })?;
-            let stop_key = loop {
-                match ui.read_key() {
-                    Ok(Key::Other) => {}
-                    Ok(Key::Repeat | Key::Skip) if item.kind == PromptKind::Keyboard => {}
-                    Ok(key) => break key,
-                    Err(error) => {
-                        let _ = recorder.finish();
-                        return Err(error);
-                    }
-                }
+            let stop_key = read_stop_key(ui, item.kind);
+            let take = recorder.finish();
+            let stop_key = stop_key?;
+            let samples = match take {
+                Ok(samples) => Some(samples),
+                Err(error) if error.kind() == io::ErrorKind::InvalidData => None,
+                Err(error) => return Err(error),
             };
-            let samples = recorder.finish()?;
             match stop_key {
                 Key::Repeat => continue,
                 Key::Skip => {
@@ -277,6 +268,10 @@ pub fn run_session(
                 }
                 _ => {}
             }
+            let Some(samples) = samples else {
+                ui.write("Die Aufnahme wurde unterbrochen oder ist leer. Bitte diesen Satz wiederholen.\n")?;
+                continue;
+            };
             let duration = samples.len() as f64 / f64::from(SAMPLE_RATE);
             ui.write(&format!(
                 "Aufnahme gestoppt: {duration:.1} Sekunden einschließlich Vorlauf.\n"
@@ -312,4 +307,19 @@ pub fn run_session(
         }
     }
     Ok(summary)
+}
+
+fn read_stop_key(ui: &mut impl Interface, kind: PromptKind) -> io::Result<Key> {
+    ui.write(if kind == PromptKind::Keyboard {
+        "Aufnahme läuft: Jetzt nur tippen. Enter: stoppen · Escape/Strg+C: beenden\n"
+    } else {
+        "Aufnahme läuft. Enter: stoppen · W: verwerfen/wiederholen · S: überspringen · Escape/Strg+C: beenden\n"
+    })?;
+    loop {
+        match ui.read_key()? {
+            Key::Other => {}
+            Key::Repeat | Key::Skip if kind == PromptKind::Keyboard => {}
+            key => return Ok(key),
+        }
+    }
 }

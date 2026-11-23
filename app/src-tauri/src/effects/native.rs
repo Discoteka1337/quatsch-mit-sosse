@@ -6,8 +6,8 @@ use windows::{
         Foundation::{E_INVALIDARG, S_OK},
         Media::Audio::{
             AudioSessionStateExpired, DEVICE_STATE_ACTIVE, IAudioSessionControl2,
-            IAudioSessionManager2, IMMDeviceEnumerator, ISimpleAudioVolume, MMDeviceEnumerator,
-            eRender,
+            IAudioSessionEnumerator, IAudioSessionManager2, IMMDevice, IMMDeviceEnumerator,
+            ISimpleAudioVolume, MMDeviceEnumerator, eRender,
         },
         System::Com::{
             CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree,
@@ -54,34 +54,69 @@ fn enumerate() -> windows::core::Result<Mixer<ISimpleAudioVolume>> {
             CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
         let devices = enumerator.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)?;
         for index in 0..devices.GetCount()? {
-            let device = devices.Item(index)?;
-            let id = take_id(device.GetId()?)?;
-            let manager: IAudioSessionManager2 = device.Activate(CLSCTX_ALL, None)?;
-            let sessions = manager.GetSessionEnumerator()?;
-            for i in 0..sessions.GetCount()? {
-                let session = sessions.GetSession(i)?.cast::<IAudioSessionControl2>()?;
-                if session.GetState()? == AudioSessionStateExpired
-                    || session.IsSystemSoundsSession() == S_OK
-                {
-                    continue;
-                }
-                let pid = session.GetProcessId()?;
-                if pid == 0 || pid == std::process::id() {
-                    continue;
-                }
-                let instance = take_id(session.GetSessionInstanceIdentifier()?)?;
-                mixer.sessions.insert(
-                    instance,
-                    Session {
-                        device: id.clone(),
-                        group: take_id(session.GetSessionIdentifier()?)?,
-                        volume: session.cast()?,
-                    },
-                );
+            if devices
+                .Item(index)
+                .and_then(|device| enumerate_device(&device, &mut mixer))
+                .is_err()
+            {
+                mixer.complete = false;
             }
         }
     }
     Ok(mixer)
+}
+
+fn enumerate_device(
+    device: &IMMDevice,
+    mixer: &mut Mixer<ISimpleAudioVolume>,
+) -> windows::core::Result<()> {
+    unsafe {
+        let id = take_id(device.GetId()?)?;
+        let manager: IAudioSessionManager2 = device.Activate(CLSCTX_ALL, None)?;
+        let sessions = manager.GetSessionEnumerator()?;
+        for index in 0..sessions.GetCount()? {
+            match read_session(&sessions, index, &id) {
+                Ok(Some((instance, session))) => {
+                    mixer.sessions.insert(instance, session);
+                }
+                Ok(None) => {}
+                Err(_) => mixer.complete = false,
+            }
+        }
+    }
+    Ok(())
+}
+
+fn read_session(
+    sessions: &IAudioSessionEnumerator,
+    index: i32,
+    device: &str,
+) -> windows::core::Result<Option<(String, Session<ISimpleAudioVolume>)>> {
+    unsafe {
+        let session = sessions
+            .GetSession(index)?
+            .cast::<IAudioSessionControl2>()?;
+        if session.GetState()? == AudioSessionStateExpired {
+            return Ok(None);
+        }
+        let system = session.IsSystemSoundsSession();
+        system.ok()?;
+        if system == S_OK {
+            return Ok(None);
+        }
+        let pid = session.GetProcessId()?;
+        if pid == 0 || pid == std::process::id() {
+            return Ok(None);
+        }
+        Ok(Some((
+            take_id(session.GetSessionInstanceIdentifier()?)?,
+            Session {
+                device: device.to_owned(),
+                group: take_id(session.GetSessionIdentifier()?)?,
+                volume: session.cast()?,
+            },
+        )))
+    }
 }
 
 pub(super) fn with_mixer(

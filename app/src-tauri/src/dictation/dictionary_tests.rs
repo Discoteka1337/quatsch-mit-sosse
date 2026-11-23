@@ -3,6 +3,56 @@ use crate::speech::{DEFAULT_MODEL, FALLBACK_MODEL};
 use quatsch_mit_sosse_store::{DictionaryDraft, Source, Store};
 
 #[test]
+fn live_cleanup_uses_the_saved_rule_switches_and_digit_threshold() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let db = dir.path().join("words.db");
+    let input = "morgen um vierzehn Uhr dreißig";
+    let dictate = |text: &str| {
+        let settings = crate::settings::SettingsStore::load(dir.path()).unwrap();
+        Transcript::from_dictation(
+            DEFAULT_MODEL,
+            text.into(),
+            settings.current().cleanup,
+            || Store::open(&db),
+        )
+        .record
+        .finished
+    };
+    assert_eq!(dictate(input), "Morgen um 14:30 Uhr.");
+    assert!(dictate("erste Zeile neuer Absatz").contains("neuer Absatz"));
+    std::fs::write(&path, r#"{"schemaVersion":1,"cleanup":{"voiceCommands":true,"digitsFrom":3,"punctuation":false,"fillerWords":"strong"}}"#).unwrap();
+    assert_eq!(dictate("also drei Plätze neuer Absatz"), "3 Plätze\n\n");
+    std::fs::write(&path, r#"{"cleanup":{"dictionary":false,"snippets":false,"fillerWords":"off","selfCorrections":false,"numbers":false,"punctuation":false}}"#).unwrap();
+    let raw = "äh kodex Strasse vierzehn. Gedanken ordnen Prompt.";
+    assert_eq!(dictate(raw), raw);
+}
+
+#[test]
+fn review_preserves_asr_text_and_reports_uncertain_byte_ranges_in_the_finished_text() {
+    let temp = tempfile::tempdir().unwrap();
+    let db = temp.path().join("review.db");
+    let raw = "Ähm, kodex. Das scheint seltsam, äh, schwierig.";
+    let result = Transcript::from_dictation(DEFAULT_MODEL, raw.into(), Default::default(), || {
+        Store::open(&db)
+    });
+    assert_eq!(result.record.original, raw);
+    assert_eq!(
+        result.record.finished,
+        "Codex. Das scheint seltsam, äh, schwierig."
+    );
+    assert_eq!(
+        result
+            .record
+            .uncertain
+            .iter()
+            .map(|range| &result.record.finished[range.clone()])
+            .collect::<Vec<_>>(),
+        ["seltsam, äh, schwierig"]
+    );
+}
+
+#[test]
 fn snippet_edits_apply_on_the_next_dictation_and_repeat_keeps_the_expanded_value_and_caret() {
     use quatsch_mit_sosse_store::SnippetDraft;
     use quatsch_mit_sosse_textfx::SnippetValue;
@@ -22,6 +72,7 @@ fn snippet_edits_apply_on_the_next_dictation_and_repeat_keeps_the_expanded_value
         session.recognized(Ok(Transcript::prepare(
             DEFAULT_MODEL,
             "MEIN GRUSS!".into(),
+            Default::default(),
             || Store::open(&db),
             |value| {
                 assert_eq!(value, SnippetValue::Clipboard);
@@ -68,14 +119,15 @@ fn a_busy_clipboard_preserves_the_trigger_and_returns_a_content_free_warning() {
     let transcript = Transcript::prepare(
         DEFAULT_MODEL,
         "Gedanken ordnen Prompt. private Vorlage!".into(),
+        Default::default(),
         || Store::open(&db),
         |_| Err(quatsch_mit_sosse_inject::InjectError::Unavailable),
     );
     assert_eq!(
-        transcript.text,
-        "Ordne diese unstrukturierten Gedanken zu einer klaren, gut lesbaren Fassung, ohne Inhalte hinzuzufügen oder wegzulassen. private Vorlage!"
+        transcript.record.finished,
+        "Ordne diese unstrukturierten Gedanken zu einer klaren, gut lesbaren Fassung, ohne Inhalte hinzuzufügen oder wegzulassen. Private Vorlage!"
     );
-    assert_eq!(transcript.cursor, None);
+    assert_eq!(transcript.record.cursor, None);
     assert_eq!(
         transcript.warning.as_ref(),
         Some(&crate::messages().snippet_clipboard_warning)
@@ -95,6 +147,7 @@ fn each_dictation_reads_the_current_dictionary_before_insertion() {
         session.recognized(Ok(Transcript::from_dictation(
             DEFAULT_MODEL,
             "äh kodex und vierzehn".into(),
+            Default::default(),
             || Store::open(&database),
         )));
         assert_eq!(session.ports.inserts.last(), Some(&(1, expected.into())));
@@ -103,7 +156,7 @@ fn each_dictation_reads_the_current_dictionary_before_insertion() {
         assert_eq!(session.ports.inserts.last(), Some(&(2, expected.into())));
         session.inserted(Ok(()));
     };
-    dictate("äh Codex und vierzehn");
+    dictate("Codex und 14.");
     store
         .update(
             id,
@@ -115,9 +168,9 @@ fn each_dictation_reads_the_current_dictionary_before_insertion() {
             },
         )
         .unwrap();
-    dictate("äh Mein CODE und vierzehn");
+    dictate("Mein CODE und 14.");
     store.delete(id).unwrap();
-    dictate("äh kodex und vierzehn");
+    dictate("Kodex und 14.");
 }
 
 #[test]
@@ -131,13 +184,14 @@ fn unreadable_dictionary_keeps_raw_text_for_insertion_and_displays_the_warning()
     session.recognized(Ok(Transcript::from_dictation(
         DEFAULT_MODEL,
         "kodex Strasse".into(),
+        Default::default(),
         || Store::open(&database),
     )));
-    assert_eq!(session.ports.inserts, [(1, "kodex Straße".into())]);
+    assert_eq!(session.ports.inserts, [(1, "kodex Strasse".into())]);
     session.inserted(Ok(()));
     assert!(
         matches!(&session.ports.overlay, OverlayState::Error { message, text }
-        if message.contains("Wörterbuch") && text == "kodex Straße")
+        if message.contains("Wörterbuch") && text == "kodex Strasse")
     );
     session.repeat(Some(2));
     session.inserted(Ok(()));
@@ -157,8 +211,19 @@ fn personal_spellings_take_precedence_over_primeline_and_preserve_technical_text
     };
     let id = store.add(&draft).unwrap();
     let input = "Grüsse, Strasse, Strassennamen, Strasse-test@example.org, https://test/Fuss";
-    let output =
-        |model| Transcript::from_dictation(model, input.into(), || Store::open(&path)).text;
+    let output = |model| {
+        Transcript::from_dictation(
+            model,
+            input.into(),
+            crate::settings::CleanupSettings {
+                punctuation: false,
+                ..Default::default()
+            },
+            || Store::open(&path),
+        )
+        .record
+        .finished
+    };
     assert_eq!(
         output(DEFAULT_MODEL),
         "Grüße, Strasse, Strasse, Strasse-test@example.org, https://test/Fuss"
@@ -203,9 +268,16 @@ fn primeline_restores_whole_german_words_while_preserving_identifiers_and_fallba
         ),
     ] {
         for (model, expected) in [(DEFAULT_MODEL, primeline), (FALLBACK_MODEL, input)] {
-            let transcript =
-                Transcript::from_dictation(model, input.to_owned(), || Store::open(&path));
-            assert_eq!(transcript.text, expected);
+            let transcript = Transcript::from_dictation(
+                model,
+                input.to_owned(),
+                crate::settings::CleanupSettings {
+                    punctuation: false,
+                    ..Default::default()
+                },
+                || Store::open(&path),
+            );
+            assert_eq!(transcript.record.finished, expected);
             assert!(transcript.warning.is_none());
         }
     }
@@ -213,9 +285,10 @@ fn primeline_restores_whole_german_words_while_preserving_identifiers_and_fallba
 
 #[test]
 fn silence_skips_the_dictionary() {
-    let transcript = Transcript::from_dictation(DEFAULT_MODEL, "  ".into(), || {
-        panic!("unexpected database access")
-    });
-    assert_eq!(transcript.text, "  ");
+    let transcript =
+        Transcript::from_dictation(DEFAULT_MODEL, "  ".into(), Default::default(), || {
+            panic!("unexpected database access")
+        });
+    assert_eq!(transcript.record.finished, "  ");
     assert!(transcript.warning.is_none());
 }

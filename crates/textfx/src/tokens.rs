@@ -49,6 +49,61 @@ pub(super) fn identifier_edge<'a>(mut neighbors: impl Iterator<Item = &'a Token>
     }
 }
 
+pub(super) fn is_address_field(field: &[Token]) -> bool {
+    field.iter().any(|t| t.text.contains(['@', '/', '\\']))
+        || field.windows(3).any(|t| {
+            t[1].text == "."
+                && matches!(t[0].kind, Kind::Word | Kind::Protected)
+                && matches!(t[2].kind, Kind::Word | Kind::Protected)
+        })
+}
+
+/// Mark the address body while leaving spaces and surrounding prose punctuation outside it.
+pub(super) fn address_parts(tokens: &[Token]) -> Vec<bool> {
+    let mut marked = vec![false; tokens.len()];
+    let mut start = 0;
+    for field in tokens.split_inclusive(|t| matches!(t.kind, Kind::Space | Kind::LineBreak)) {
+        if is_address_field(field) {
+            let prefix = field
+                .iter()
+                .take_while(|t| {
+                    matches!(
+                        t.text.as_str(),
+                        "„" | "‚" | "»" | "›" | "\"" | "(" | "[" | "{"
+                    )
+                })
+                .count();
+            let suffix = field[prefix..]
+                .iter()
+                .rev()
+                .take_while(|t| {
+                    matches!(t.kind, Kind::Space | Kind::LineBreak)
+                        || matches!(
+                            t.text.as_str(),
+                            "." | ","
+                                | ":"
+                                | ";"
+                                | "!"
+                                | "?"
+                                | "…"
+                                | "“"
+                                | "‘"
+                                | "«"
+                                | "‹"
+                                | "\""
+                                | ")"
+                                | "]"
+                                | "}"
+                        )
+                })
+                .count();
+            marked[start + prefix..start + field.len() - suffix].fill(true);
+        }
+        start += field.len();
+    }
+    marked
+}
+
 // Keys are only used for comparison. Output always uses the original spelling.
 pub(super) fn word_key(text: &str) -> String {
     ComposingNormalizerBorrowed::new_nfc()
@@ -175,6 +230,30 @@ fn mark_numbers(tokens: &[Token], protected: &mut [bool]) {
 
 pub(super) fn tokenize(input: &str, proper_names: &[String]) -> Vec<Token> {
     tokenize_with_terms(input, proper_names, &[], false)
+}
+
+/// Keep the spelling of each numeric literal, including signs, separators and percentages.
+pub(super) fn numeric_literals(text: &str) -> Vec<String> {
+    if !text.contains(char::is_numeric) {
+        return Vec::new();
+    }
+    let tokens = tokenize(text, &[]);
+    let mut numbers = Vec::new();
+    for (index, token) in tokens.iter().enumerate() {
+        if token.kind == Kind::Protected
+            && !token.text.starts_with(char::is_alphabetic)
+            && token.text.contains(char::is_numeric)
+        {
+            let mut number = token.text.clone();
+            if let Some(unit) = tokens[index + 1..].iter().find(|t| t.kind != Kind::Space)
+                && matches!(unit.text.as_str(), "%" | "‰" | "‱")
+            {
+                number.push_str(&unit.text);
+            }
+            numbers.push(number);
+        }
+    }
+    numbers
 }
 
 pub(super) fn tokenize_with_terms(

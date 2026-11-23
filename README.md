@@ -189,6 +189,9 @@ Manuell prüfen: Alle 50 Aufnahmen einsprechen beziehungsweise aufnehmen, einige
 `tools/bench` liest sämtliche nummerierten WAV/TXT-Paare aus dem privaten Korpus
 und misst jedes vollständig installierte ASR-Modell über die vorhandene
 `SpeechEngine` einschließlich Silero-VAD. Es lädt keine Modelle herunter.
+Jeder Modellprozess gleicht seine eingelesenen Audiodaten und Referenzen mit
+dem Korpusstand vom Beginn des Laufs ab. Bei einer Änderung bricht der
+Vergleich ab und der bisherige Bericht bleibt erhalten.
 Andere rechenintensive Programme und Builds während der Messung pausieren.
 
 ```powershell

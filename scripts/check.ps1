@@ -19,7 +19,9 @@ $indexOutput = & git -C "$projectRoot" -c core.quotepath=false ls-files -z
 if ($LASTEXITCODE -ne 0) { throw 'Der Git-Index konnte nicht geprüft werden.' }
 $trackedFiles = @(($indexOutput -join "`n") -split "`0" | Where-Object { $_ -ne '' })
 foreach ($file in $trackedFiles) {
-    if ($file -match '^testdata/private/|\.(onnx|gguf|bin)$' -or
+    if ($file -match '^testdata/private/|\.(onnx(\.data)?|gguf|bin)$' -or
+        $file -match '(^|/)((turbo-)?tokens\.txt|sherpa-onnx-(nemo-parakeet|whisper)-[^/]*\.tar\.bz2)$' -or
+        $file -match '(^|/)\.env($|/|\.(?!example($|/)))|\.(key|pem)($|/)' -or
         ($file -match '\.wav$' -and $file -notmatch '^testdata/public/[^/]+\.wav$')) {
         $problems.Add("Verbotene Datei im Git-Index: $file")
     }

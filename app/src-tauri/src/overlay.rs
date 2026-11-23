@@ -139,15 +139,32 @@ fn refresh_location(app: &AppHandle) -> tauri::Result<()> {
 fn remember_location(app: &AppHandle) -> tauri::Result<()> {
     let mut rect = RECT::default();
     unsafe { GetWindowRect(hwnd(app)?, &mut rect) }.map_err(io::Error::other)?;
+    let notify = app.clone();
     model(app, |m| {
-        m.store.remember(Bounds {
-            x: rect.left,
-            y: rect.top,
-            width: rect.right - rect.left,
-            height: rect.bottom - rect.top,
-        })
+        m.store.remember(
+            Bounds {
+                x: rect.left,
+                y: rect.top,
+                width: rect.right - rect.left,
+                height: rect.bottom - rect.top,
+            },
+            move |result| {
+                if result.is_err() {
+                    crate::dictation::report_error(
+                        &notify,
+                        messages().overlay_preferences_error.clone(),
+                    );
+                }
+            },
+        )
     })?;
     refresh_location(app)
+}
+
+pub(super) fn finish_position_writes(app: &AppHandle) -> io::Result<()> {
+    // Shutdown runs on the dictation worker. Release the model lock before waiting.
+    let pending = model(app, |m| m.store.pending_writes())?;
+    pending.recv().map_err(io::Error::other)
 }
 
 pub(super) fn apply_preferences(app: &AppHandle, new: OverlayPreferences) -> tauri::Result<()> {
